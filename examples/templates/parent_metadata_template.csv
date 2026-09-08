@@ -1,0 +1,4 @@
+file,type,stdname,grainid,known_u_ppm,known_th_ppm,known_sm_ppm
+nist-001.csv,NIST612,NIST612,NIST612-001,NaN,NaN,NaN
+bridge-001.csv,MineralStd,ReferenceMaterial,ReferenceMaterial-grain-001,NaN,NaN,NaN
+sample-001.csv,Unknown,,SampleA-grain-001,NaN,NaN,NaN

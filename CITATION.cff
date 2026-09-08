@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use LADDReduce, please cite the software release and the associated method publication when available."
+title: "LADDReduce"
+type: software
+authors:
+  - family-names: "Giblin"
+    given-names: "Jacqueline"
+version: "0.1.0-rc1"
+license: "MIT"

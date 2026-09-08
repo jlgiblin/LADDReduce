@@ -1,0 +1,5 @@
+RunID,SampleName,GrainID,He4_cps,He4_1SD
+air-001,Air,air-001,NaN,NaN
+blank-001,Blank,blank-001,NaN,NaN
+sample-001,SampleA,SampleA-grain-001,NaN,NaN
+reference-001,ReferenceMaterial,ReferenceMaterial-grain-001,NaN,NaN

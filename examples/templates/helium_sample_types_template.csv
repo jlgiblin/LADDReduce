@@ -1,0 +1,5 @@
+SampleName,RunScript,Meaning
+Air,1,air-calibration measurement
+Blank,2,blank measurement
+SampleA,3,unknown sample
+ReferenceMaterial,4,mineral reference material
