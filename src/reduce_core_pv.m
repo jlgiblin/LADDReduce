@@ -86,6 +86,9 @@ end
 if ~ismember('known_u_ppm', md.Properties.VariableNames),  md.known_u_ppm  = nan(height(md),1); end
 if ~ismember('known_th_ppm', md.Properties.VariableNames), md.known_th_ppm = nan(height(md),1); end
 if ~ismember('known_sm_ppm', md.Properties.VariableNames), md.known_sm_ppm = nan(height(md),1); end
+if ~ismember('known_u_1sd_ppm', md.Properties.VariableNames),  md.known_u_1sd_ppm  = nan(height(md),1); end
+if ~ismember('known_th_1sd_ppm', md.Properties.VariableNames), md.known_th_1sd_ppm = nan(height(md),1); end
+if ~ismember('known_sm_1sd_ppm', md.Properties.VariableNames), md.known_sm_1sd_ppm = nan(height(md),1); end
 
 % Optional audit-only/manual window table: file,t0,t1. The default remains
 % fully automatic. This is used for controlled comparisons with historical
@@ -249,9 +252,16 @@ switch lower(cfg.mode)
     KTh_i = raw.known_th_ppm(okTh)./ raw.R_Th(okTh);
     KU    = median(KU_i,'omitnan');     KTh = median(KTh_i,'omitnan');
 
-    % calibration scatter
+    % Calibration scatter plus the stated uncertainty of the reference
+    % composition. The latter is systematic and therefore is not captured
+    % by replicate-to-replicate scatter in K.
     robstd = @(x) 1.4826*mad(x,1);
-    sigKU = robstd(KU_i);  sigKTh = robstd(KTh_i);
+    refRseU  = median_reference_rse(raw.known_u_ppm, ...
+        raw.known_u_1sd_ppm, okU);
+    refRseTh = median_reference_rse(raw.known_th_ppm, ...
+        raw.known_th_1sd_ppm, okTh);
+    sigKU = hypot(robstd(KU_i),  abs(KU)  * refRseU);
+    sigKTh= hypot(robstd(KTh_i), abs(KTh) * refRseTh);
 
     % ratio SE from cps SEs
     Upos = max(raw.cpsu,eps); Thpos = max(raw.cpsth,eps); ISpos = max(raw.cpssi,eps);
@@ -297,7 +307,9 @@ if isfield(cfg,'includeSm') && cfg.includeSm && ismember('R_Sm', raw.Properties.
         % -----------------------------------------------
 
         KSm    = medKSm;          % central calibration factor
-        sigKSm = sigKSm;          % absolute scatter of KSm across anchors
+        refRseSm = median_reference_rse(raw.known_sm_ppm, ...
+            raw.known_sm_1sd_ppm, okSmAnch);
+        sigKSm = hypot(sigKSm, abs(KSm) * refRseSm);
 
         % Ratio SE from CPS SEs (if cpssm present; otherwise leave NaN)
         ISpos = max(raw.cpssi, eps);
@@ -379,6 +391,10 @@ raw.flags(badIS) = strtrim(raw.flags(badIS) + " " + "NOIS_FALLBACK_RECOMMENDED")
     explicitNistExclude = is612 & ismember(rawFileNorm, excludeNistNorm);
     okU   = is612 & ~explicitNistExclude & isfinite(raw.cpsu)  & raw.cpsu>0 & isfinite(raw.known_u_ppm);
     okTh  = is612 & ~explicitNistExclude & isfinite(raw.cpsth) & raw.cpsth>0 & isfinite(raw.known_th_ppm);
+    refRseU  = median_reference_rse(raw.known_u_ppm, ...
+        raw.known_u_1sd_ppm, okU);
+    refRseTh = median_reference_rse(raw.known_th_ppm, ...
+        raw.known_th_1sd_ppm, okTh);
 
     KUstar_i  = raw.known_u_ppm(okU)   ./ raw.cpsu(okU);
     KThstar_i = raw.known_th_ppm(okTh) ./ raw.cpsth(okTh);
@@ -435,7 +451,8 @@ raw.flags(badIS) = strtrim(raw.flags(badIS) + " " + "NOIS_FALLBACK_RECOMMENDED")
 
     if numel(seqU)>=2,  KUrow  = interp1(seqU, KUstar_i,  seq, 'pchip','extrap'); else, KUrow  = repmat(medKU, size(seq)); end
     if numel(seqTh)>=2, KThrow = interp1(seqTh,KThstar_i, seq, 'pchip','extrap'); else, KThrow = repmat(medKTh,size(seq)); end
-    sigKUrow  = relKU  * KUrow;  sigKThrow = relKTh * KThrow;
+    sigKUrow  = abs(KUrow)  .* sqrt(relKU.^2  + refRseU.^2);
+    sigKThrow = abs(KThrow) .* sqrt(relKTh.^2 + refRseTh.^2);
 
     raw.U_ppm  = KUrow  .* raw.cpsu;
     raw.Th_ppm = KThrow .* raw.cpsth;
@@ -453,6 +470,8 @@ if isfield(cfg,'includeSm') && cfg.includeSm && ismember('cpssm', raw.Properties
                    isfinite(raw.known_sm_ppm) & raw.known_sm_ppm>0;
 
         if any(okSmAnch)
+            refRseSm = median_reference_rse(raw.known_sm_ppm, ...
+                raw.known_sm_1sd_ppm, okSmAnch);
             KSmstar_i = raw.known_sm_ppm(okSmAnch) ./ raw.cpssm(okSmAnch);
             seqSm     = raw.seq(okSmAnch);
             idxSm     = find(okSmAnch);
@@ -482,7 +501,7 @@ if isfield(cfg,'includeSm') && cfg.includeSm && ismember('cpssm', raw.Properties
             else
                 KSmrow = repmat(medKSm, size(raw.seq));
             end
-            sigKSmrow = relKSm * KSmrow;
+            sigKSmrow = abs(KSmrow) .* sqrt(relKSm.^2 + refRseSm.^2);
 
             % Apply to all rows
             raw.Sm_ppm = KSmrow .* raw.cpssm;
@@ -889,6 +908,21 @@ if ismember('known_sm_ppm', fields)
 else
     row.known_sm_ppm = NaN;
 end
+if ismember('known_u_1sd_ppm', fields)
+    row.known_u_1sd_ppm = double(mdrow.known_u_1sd_ppm);
+else
+    row.known_u_1sd_ppm = NaN;
+end
+if ismember('known_th_1sd_ppm', fields)
+    row.known_th_1sd_ppm = double(mdrow.known_th_1sd_ppm);
+else
+    row.known_th_1sd_ppm = NaN;
+end
+if ismember('known_sm_1sd_ppm', fields)
+    row.known_sm_1sd_ppm = double(mdrow.known_sm_1sd_ppm);
+else
+    row.known_sm_1sd_ppm = NaN;
+end
 
 % times
 if isnan(i0) || isnan(i1) || i1<=i0 || i0<1 || i1>numel(t)
@@ -929,4 +963,18 @@ row.Sm_atoms_g = NaN; row.Sm_atoms_g_se = NaN;
 row.flags = string(flag);
 row.notes = string(notes);
 row.seq   = seq;
+end
+
+function rse = median_reference_rse(knownValue, known1sd, mask)
+% Return the representative relative 1SD of the calibration composition.
+% Missing optional uncertainties are intentionally treated as zero so
+% historical metadata files remain runnable; public documentation records
+% that omission as an incomplete uncertainty budget.
+valid = mask & isfinite(knownValue) & knownValue > 0 & ...
+    isfinite(known1sd) & known1sd >= 0;
+if any(valid)
+    rse = median(known1sd(valid) ./ knownValue(valid), 'omitnan');
+else
+    rse = 0;
+end
 end

@@ -45,10 +45,13 @@ function mdOut = ladd_enrich_metadata(metadataCsv, varargin)
 %
 % LOOKUP TABLE FORMAT
 %   stdname        — standard name (case-insensitive normalized match)
-%   known_u_ppm    — U concentration in ppm
-%   known_th_ppm   — Th concentration in ppm
-%   known_sm_ppm   — Sm concentration on the basis documented by the user;
-%                    pass the matching SmReferenceBasis to apatite reduction
+%   known_u_ppm       — U concentration in ppm
+%   known_th_ppm      — Th concentration in ppm
+%   known_sm_ppm      — Sm concentration on the basis documented by the user;
+%                       pass the matching SmReferenceBasis to apatite reduction
+%   known_u_1sd_ppm   — optional 1SD uncertainty on known_u_ppm
+%   known_th_1sd_ppm  — optional 1SD uncertainty on known_th_ppm
+%   known_sm_1sd_ppm  — optional 1SD uncertainty on known_sm_ppm
 %   sm_reference_basis — recommended provenance column; not interpreted here
 %   reference      — citation (informational only, ignored by code)
 %
@@ -163,8 +166,10 @@ if ismember('file', md.Properties.VariableNames) && ~isempty(runOrder)
     fprintf('  Run order: %s\n', strjoin(ordered_pfx, ' → '));
 end
 
-% Ensure required known_* columns exist
-for col = {'known_u_ppm','known_th_ppm','known_sm_ppm'}
+% Ensure concentration and optional 1SD columns exist.
+knownColumns = {'known_u_ppm','known_th_ppm','known_sm_ppm', ...
+    'known_u_1sd_ppm','known_th_1sd_ppm','known_sm_1sd_ppm'};
+for col = knownColumns
     if ~ismember(col{1}, md.Properties.VariableNames)
         md.(col{1}) = NaN(height(md), 1);
     end
@@ -176,7 +181,7 @@ if ~ismember('stdname', md.Properties.VariableNames)
 end
 
 % Convert known_* columns to double if they came in as string
-for col = {'known_u_ppm','known_th_ppm','known_sm_ppm'}
+for col = knownColumns
     v = md.(col{1});
     if isstring(v) || iscell(v)
         v = str2double(string(v));
@@ -191,14 +196,14 @@ lk.Properties.VariableNames = lower(lk.Properties.VariableNames);
 assert(ismember('stdname',lk.Properties.VariableNames), ...
     'ladd_enrich_metadata: lookup table must contain stdname.');
 
-% Ensure lookup has required columns
-for col = {'known_u_ppm','known_th_ppm','known_sm_ppm'}
+% Ensure lookup has concentration and optional 1SD columns.
+for col = knownColumns
     if ~ismember(col{1}, lk.Properties.VariableNames)
         lk.(col{1}) = NaN(height(lk), 1);
     end
 end
 % Convert lookup known_* to double
-for col = {'known_u_ppm','known_th_ppm','known_sm_ppm'}
+for col = knownColumns
     v = lk.(col{1});
     if isstring(v) || iscell(v)
         v = str2double(string(v));
@@ -254,7 +259,7 @@ for i = 1:height(md)
 
     % Fill only blank/NaN cells — never overwrite existing values
     filled_any = false;
-    for col = {'known_u_ppm','known_th_ppm','known_sm_ppm'}
+    for col = knownColumns
         existing = md.(col{1})(i);
         lk_val   = lk.(col{1})(matchIdx);
         if (isnan(existing) || existing == 0) && isfinite(lk_val)

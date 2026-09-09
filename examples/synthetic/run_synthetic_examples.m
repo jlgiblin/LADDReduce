@@ -114,9 +114,14 @@ else
 end
 lookupBasis = ["total";"total"];
 lookupReference = ["synthetic fixture";"synthetic fixture"];
+lookupU1sd = 0.01 .* lookupU;
+lookupTh1sd = 0.01 .* lookupTh;
+lookupSm1sd = 0.01 .* lookupSm;
 referenceLookup = table(lookupNames,lookupU,lookupTh,lookupSm, ...
+    lookupU1sd,lookupTh1sd,lookupSm1sd, ...
     lookupBasis,lookupReference,'VariableNames',{'stdname','known_u_ppm', ...
-    'known_th_ppm','known_sm_ppm','sm_reference_basis','reference'});
+    'known_th_ppm','known_sm_ppm','known_u_1sd_ppm','known_th_1sd_ppm', ...
+    'known_sm_1sd_ppm','sm_reference_basis','reference'});
 referenceLookupFile = fullfile(mineralDir,'reference_material_lookup.csv');
 writetable(referenceLookup,referenceLookupFile);
 

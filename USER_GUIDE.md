@@ -135,6 +135,9 @@ Required or strongly recommended columns:
 | known_u_ppm | Declared U concentration for calibration rows |
 | known_th_ppm | Declared Th concentration for calibration rows |
 | known_sm_ppm | Declared Sm concentration for apatite calibration rows |
+| known_u_1sd_ppm | Optional absolute 1-sigma uncertainty on known_u_ppm |
+| known_th_1sd_ppm | Optional absolute 1-sigma uncertainty on known_th_ppm |
+| known_sm_1sd_ppm | Optional absolute 1-sigma uncertainty on known_sm_ppm |
 
 Rows with type NIST612 must represent NIST612 glass. The zircon reducer stops
 on inconsistent type and stdname combinations instead of relabeling them.
@@ -144,6 +147,14 @@ laboratory defaults. Supply `ReferenceLookupFile` to either public parent
 reducer to fill blank `known_*` metadata fields from the lookup table. Existing
 nonblank values are never overwritten. Exact normalized standard names are
 preferred; ambiguous partial matches stop for correction.
+
+Reference-material uncertainties are propagated as systematic calibration
+terms in addition to signal and pit-volume uncertainties. If the optional
+1-sigma fields are absent or blank, the numerical value is treated as zero so
+older inputs remain runnable. The parent output then records
+`reference_uncertainty_status=NOT_SUPPLIED_ASSUMED_ZERO`; this indicates an
+incomplete uncertainty budget rather than a claim that the reference values
+are exact.
 
 ### Nested-pit volumes
 
@@ -242,9 +253,20 @@ ages = ladd_calculate_ages( ...
     'OutputFile', 'ladd_ages.csv');
 ~~~
 
-The calculation matches GrainID, solves the radioactive-production equation
-iteratively, and propagates helium and parent uncertainties. Important outputs
-include:
+The calculation matches GrainID and solves the conventional radiogenic-ingrowth
+equation iteratively:
+
+~~~text
+4He = 8 238U (exp(lambda238 t)-1)
+    + 7 235U (exp(lambda235 t)-1)
+    + 6 232Th (exp(lambda232 t)-1)
+    +   147Sm (exp(lambda147 t)-1)
+~~~
+
+The Sm term is used for apatite and omitted for zircon. Total elemental U is
+partitioned internally into 238U and 235U using natural-abundance fractions.
+First-order implicit differentiation propagates the helium and parent-
+concentration uncertainties at the converged age. Important outputs include:
 
 | Column | Meaning |
 |---|---|
@@ -252,6 +274,7 @@ include:
 | Age_1SD_Ma | Absolute 1-sigma age uncertainty |
 | Age_2SD_Ma | Two times the 1-sigma result |
 | Age_1SDpct | Relative 1-sigma age uncertainty |
+| ThU | Molar Th/U ratio calculated directly from the atomic abundances |
 | converged | Whether the age solver met its tolerance |
 | UThMatchCount | Number of parent rows matching the normalized GrainID |
 | UThMatchDecision | Unique, automatically resolved duplicate, unresolved duplicate, or no match |
@@ -339,7 +362,8 @@ For reproducible use, record:
 - mineral and isotope channels;
 - confirmation that He4_cps was the ordinary blank-corrected signal;
 - air-calibration source and uncertainty;
-- reference-material identities, concentrations, Sm basis, and citations;
+- reference-material identities, concentrations, 1-sigma uncertainties, Sm
+  basis, and citations;
 - apatite or zircon anchor mode;
 - measured pit-volume source and uncertainties, or the explicitly declared
   session-average volume;

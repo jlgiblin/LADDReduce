@@ -48,7 +48,9 @@ he = ladd_reduce_helium( ...
 
 2. Reduce parent isotopes from the time-series files and nested-pit volumes.
    The standard lookup table supplies the user's reference-material values;
-   no mineral reference material or concentration is built into the code:
+   no mineral reference material or concentration is built into the code.
+   The lookup may also supply absolute 1-sigma uncertainties for those
+   concentrations, which are propagated into the final age uncertainty:
 
 ```matlab
 parents = ladd_reduce_apatite( ...
@@ -104,6 +106,12 @@ Apatite reduction measures U, Th, and Sm and requires the declared Sm
 reference basis. Zircon reduction measures U and Th without an Sm term. The
 age-calculation step then joins the He and parent outputs by `GrainID` and uses
 their atoms-per-gram values and 1-sigma uncertainties.
+
+Reference-material concentration uncertainties are supplied through the optional
+`known_u_1sd_ppm`, `known_th_1sd_ppm`, and `known_sm_1sd_ppm` columns. Historical
+inputs without these columns remain valid, but the output records
+`NOT_SUPPLIED_ASSUMED_ZERO` because that run does not contain the complete
+reference-composition uncertainty contribution described by the LADD method.
 
 ## Review and exclusion policy
 

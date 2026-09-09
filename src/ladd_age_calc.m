@@ -452,7 +452,10 @@ end
 
 Age_2SD_Ma  = 2 .* Age_1SD_Ma;
 Age_1SDpct  = Age_1SD_Ma ./ max(Age_Ma, eps) * 100;
-ThU         = Th_ag ./ max(U_ag, eps) .* (232/238);  % molar Th/U
+% U_ag and Th_ag are already atom abundances per gram, so their ratio is
+% the molar Th/U ratio. Applying an additional atomic-mass factor would
+% incorrectly convert it a second time.
+ThU         = Th_ag ./ max(U_ag, eps);
 
 % ── Combine flags ─────────────────────────────────────────────────────────
 he_flags = strings(n,1);

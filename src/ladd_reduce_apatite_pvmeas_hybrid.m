@@ -287,20 +287,29 @@ md_join.Properties.VariableNames = lower(md_join.Properties.VariableNames);
 assert(all(ismember({'file','type','stdname','known_u_ppm','known_th_ppm'}, ...
     md_join.Properties.VariableNames)), ...
     'ladd_reduce_apatite_pvmeas_hybrid: metadata lacks required columns.');
+for optionalColumn = {'known_u_1sd_ppm','known_th_1sd_ppm','known_sm_1sd_ppm'}
+    if ~ismember(optionalColumn{1},md_join.Properties.VariableNames)
+        md_join.(optionalColumn{1}) = NaN(height(md_join),1);
+    end
+end
 strip_path = @(f) char(regexp(string(f), '[^/\\]+$', 'match', 'once'));
 md_files_j  = cellfun(strip_path, cellstr(md_join.file), 'UniformOutput', false);
 out_files_j = cellfun(strip_path, cellstr(outtbl.file),  'UniformOutput', false);
 
 ku_join=NaN(height(outtbl),1); kth_join=NaN(height(outtbl),1); ksm_join=NaN(height(outtbl),1);
+ku1sd_join=NaN(height(outtbl),1); kth1sd_join=NaN(height(outtbl),1); ksm1sd_join=NaN(height(outtbl),1);
 sourceType = strings(height(outtbl),1); sourceStdName = strings(height(outtbl),1);
 for ii = 1:height(outtbl)
     idx_j = find(strcmp(out_files_j{ii}, md_files_j), 1);
     if ~isempty(idx_j)
         ku_join(ii)  = double(md_join.known_u_ppm(idx_j));
         kth_join(ii) = double(md_join.known_th_ppm(idx_j));
+        ku1sd_join(ii)  = double(md_join.known_u_1sd_ppm(idx_j));
+        kth1sd_join(ii) = double(md_join.known_th_1sd_ppm(idx_j));
         if ismember('known_sm_ppm', md_join.Properties.VariableNames)
             ksm_join(ii) = double(md_join.known_sm_ppm(idx_j));
         end
+        ksm1sd_join(ii) = double(md_join.known_sm_1sd_ppm(idx_j));
         sourceType(ii) = string(md_join.type(idx_j));
         sourceStdName(ii) = string(md_join.stdname(idx_j));
     end
@@ -308,6 +317,9 @@ end
 outtbl.known_u_ppm  = ku_join;
 outtbl.known_th_ppm = kth_join;
 outtbl.known_sm_ppm = ksm_join;
+outtbl.known_u_1sd_ppm  = ku1sd_join;
+outtbl.known_th_1sd_ppm = kth1sd_join;
+outtbl.known_sm_1sd_ppm = ksm1sd_join;
 outtbl.type = sourceType;
 outtbl.stdname = sourceStdName;
 if ~hasIndependentNist
@@ -654,7 +666,10 @@ K_U_i  = known_u_all(bridge_seqs)  ./ (cpsu_all(bridge_seqs)  ./ PV_used_bridge(
 K_Th_i = known_th_all(bridge_seqs) ./ (cpsth_all(bridge_seqs) ./ PV_used_bridge(bridge_seqs));
 K_U_med  = median(K_U_i,  'omitnan'); relK_U  = robstd(K_U_i)  / max(eps, abs(K_U_med));
 K_Th_med = median(K_Th_i, 'omitnan'); relK_Th = robstd(K_Th_i) / max(eps, abs(K_Th_med));
+relRef_U  = median_reference_rse(known_u_all(bridge_seqs), ku1sd_join(bridge_seqs));
+relRef_Th = median_reference_rse(known_th_all(bridge_seqs), kth1sd_join(bridge_seqs));
 K_Sm_med = NaN; relK_Sm = NaN;
+relRef_Sm = 0;
 if hasSm
     has_sm_ref_final = isfinite(cpssm_all(bridge_seqs)) & cpssm_all(bridge_seqs) > 0 & ...
                         isfinite(known_sm_all(bridge_seqs)) & known_sm_all(bridge_seqs) > 0;
@@ -662,6 +677,7 @@ if hasSm
     if ~isempty(sm_anchor_idx)
         K_Sm_i   = known_sm_all(sm_anchor_idx) ./ (cpssm_all(sm_anchor_idx) ./ PV_used_bridge(sm_anchor_idx));
         K_Sm_med = median(K_Sm_i, 'omitnan'); relK_Sm = robstd(K_Sm_i) / max(eps, abs(K_Sm_med));
+        relRef_Sm = median_reference_rse(known_sm_all(sm_anchor_idx), ksm1sd_join(sm_anchor_idx));
     end
 end
 if strcmpi(anchorMode, 'median')
@@ -718,6 +734,9 @@ if hasSm
     end
 end
 smBridgeApplied = false(height(outtbl),1);
+uReferenceRel1sdUsed = NaN(height(outtbl),1);
+thReferenceRel1sdUsed = NaN(height(outtbl),1);
+smReferenceRel1sdUsed = NaN(height(outtbl),1);
 
 for i = 1:height(outtbl)
     if ~is_unknown(i) || isnan(assigned_bridge(i)), continue; end
@@ -735,6 +754,13 @@ for i = 1:height(outtbl)
         if hasSm && isfinite(sm_ppm_new(i))
             smBridgeApplied(i) = true;
         end
+        isNist = strcmpi(string(outtbl.type),'NIST612');
+        uReferenceRel1sdUsed(i) = median_reference_rse( ...
+            known_u_all(isNist), ku1sd_join(isNist));
+        thReferenceRel1sdUsed(i) = median_reference_rse( ...
+            known_th_all(isNist), kth1sd_join(isNist));
+        smReferenceRel1sdUsed(i) = median_reference_rse( ...
+            known_sm_all(isNist), ksm1sd_join(isNist));
         continue;
     end
 
@@ -746,18 +772,24 @@ for i = 1:height(outtbl)
     if strcmpi(anchorMode, 'median')
         % ---- Pooled-median calibration: session-wide K, not one anchor ---
         u_ppm_new(i) = (cpsu_all(i) / pv_grain) * K_U_med;
-        u_rse = sqrt( (cpsu_se_all(i) / max(abs(cpsu_all(i)), eps))^2 + relK_U^2 + pv_grain_rse^2 );
+        u_rse = sqrt( (cpsu_se_all(i) / max(abs(cpsu_all(i)), eps))^2 + ...
+            relK_U^2 + relRef_U^2 + pv_grain_rse^2 );
         u_ppm_se_new(i) = abs(u_ppm_new(i)) * u_rse;
 
         th_ppm_new(i) = (cpsth_all(i) / pv_grain) * K_Th_med;
-        th_rse = sqrt( (cpsth_se_all(i) / max(abs(cpsth_all(i)), eps))^2 + relK_Th^2 + pv_grain_rse^2 );
+        th_rse = sqrt( (cpsth_se_all(i) / max(abs(cpsth_all(i)), eps))^2 + ...
+            relK_Th^2 + relRef_Th^2 + pv_grain_rse^2 );
         th_ppm_se_new(i) = abs(th_ppm_new(i)) * th_rse;
+        uReferenceRel1sdUsed(i) = relRef_U;
+        thReferenceRel1sdUsed(i) = relRef_Th;
 
         if hasSm && isfinite(K_Sm_med) && isfinite(cpssm_all(i)) && cpssm_all(i) > 0
             sm_ppm_new(i) = (cpssm_all(i) / pv_grain) * K_Sm_med;
-            sm_rse = sqrt( (cpssm_se_all(i) / max(abs(cpssm_all(i)), eps))^2 + relK_Sm^2 + pv_grain_rse^2 );
+            sm_rse = sqrt( (cpssm_se_all(i) / max(abs(cpssm_all(i)), eps))^2 + ...
+                relK_Sm^2 + relRef_Sm^2 + pv_grain_rse^2 );
             sm_ppm_se_new(i) = abs(sm_ppm_new(i)) * sm_rse;
             smBridgeApplied(i) = true;
+            smReferenceRel1sdUsed(i) = relRef_Sm;
         end
         continue;
     end
@@ -775,31 +807,37 @@ for i = 1:height(outtbl)
 
     % U — identical structure for U/Th/Sm, per excel-match convention
     u_ppm_new(i) = (cpsu_all(i) / pv_grain) / (cpsu_all(mi) / pv_mi) * known_u_all(mi);
+    uRefRse = scalar_reference_rse(known_u_all(mi), ku1sd_join(mi));
     u_rse = sqrt( ...
         (cpsu_se_all(i)  / max(abs(cpsu_all(i)),  eps))^2 + ...
         (cpsu_se_all(mi) / max(abs(cpsu_all(mi)), eps))^2 + ...
-        pv_grain_rse^2 + pv_mer_rse^2 );
+        pv_grain_rse^2 + pv_mer_rse^2 + uRefRse^2 );
     u_ppm_se_new(i) = abs(u_ppm_new(i)) * u_rse;
+    uReferenceRel1sdUsed(i) = uRefRse;
 
     % Th
     th_ppm_new(i) = (cpsth_all(i) / pv_grain) / (cpsth_all(mi) / pv_mi) * known_th_all(mi);
+    thRefRse = scalar_reference_rse(known_th_all(mi), kth1sd_join(mi));
     th_rse = sqrt( ...
         (cpsth_se_all(i)  / max(abs(cpsth_all(i)),  eps))^2 + ...
         (cpsth_se_all(mi) / max(abs(cpsth_all(mi)), eps))^2 + ...
-        pv_grain_rse^2 + pv_mer_rse^2 );
+        pv_grain_rse^2 + pv_mer_rse^2 + thRefRse^2 );
     th_ppm_se_new(i) = abs(th_ppm_new(i)) * th_rse;
+    thReferenceRel1sdUsed(i) = thRefRse;
 
     % Sm — same formula as U and Th (no separate convention)
     if hasSm && isfinite(cpssm_all(i)) && cpssm_all(i) > 0 && ...
                isfinite(cpssm_all(mi)) && cpssm_all(mi) > 0 && ...
                isfinite(known_sm_all(mi)) && known_sm_all(mi) > 0
         sm_ppm_new(i) = (cpssm_all(i) / pv_grain) / (cpssm_all(mi) / pv_mi) * known_sm_all(mi);
+        smRefRse = scalar_reference_rse(known_sm_all(mi), ksm1sd_join(mi));
         sm_rse = sqrt( ...
             (cpssm_se_all(i)  / max(abs(cpssm_all(i)),  eps))^2 + ...
             (cpssm_se_all(mi) / max(abs(cpssm_all(mi)), eps))^2 + ...
-            pv_grain_rse^2 + pv_mer_rse^2 );
+            pv_grain_rse^2 + pv_mer_rse^2 + smRefRse^2 );
         sm_ppm_se_new(i) = abs(sm_ppm_new(i)) * sm_rse;
         smBridgeApplied(i) = true;
+        smReferenceRel1sdUsed(i) = smRefRse;
     end
 end
 
@@ -835,6 +873,17 @@ end
 outtbl.sm_calibration_source = smCalSource;
 outtbl.bridge_seq = assigned_bridge;
 outtbl.bridge_anchor_fallback = used_fallback;
+outtbl.u_reference_rel_1sd_used = uReferenceRel1sdUsed;
+outtbl.th_reference_rel_1sd_used = thReferenceRel1sdUsed;
+outtbl.sm_reference_rel_1sd_used = smReferenceRel1sdUsed;
+referenceUncertaintyStatus = repmat("NOT_APPLICABLE",height(outtbl),1);
+hasReferenceUncertainty = is_unknown & ...
+    ((isfinite(uReferenceRel1sdUsed) & uReferenceRel1sdUsed > 0) | ...
+     (isfinite(thReferenceRel1sdUsed) & thReferenceRel1sdUsed > 0) | ...
+     (isfinite(smReferenceRel1sdUsed) & smReferenceRel1sdUsed > 0));
+referenceUncertaintyStatus(is_unknown) = "NOT_SUPPLIED_ASSUMED_ZERO";
+referenceUncertaintyStatus(hasReferenceUncertainty) = "PROPAGATED";
+outtbl.reference_uncertainty_status = referenceUncertaintyStatus;
 
 if strcmp(anchorMode, 'nist_interpolated')
     fprintf('  NIST612 time-interpolated parent calibration retained\n');
@@ -871,21 +920,24 @@ if ismember('sm_ppm', cn_out)
     sm_atoms = (outtbl.sm_ppm / 1e6) / MW_Sm .* NA .* grain_mass;
     if ismember('sm_ppm_se', cn_out)
         sm_ppm_se_rel = outtbl.sm_ppm_se ./ max(abs(outtbl.sm_ppm), eps);
-        pv_rel_se_sm  = PV_used_1sd ./ max(PV_used, eps);
-        sm_atoms_se   = abs(sm_atoms) .* sqrt(sm_ppm_se_rel.^2 + pv_rel_se_sm.^2);
+        sm_atoms_se   = abs(sm_atoms) .* sm_ppm_se_rel;
     end
 end
 
 ppm_rel_se_u  = outtbl.u_ppm_se  ./ max(abs(outtbl.u_ppm),  eps);
 ppm_rel_se_th = outtbl.th_ppm_se ./ max(abs(outtbl.th_ppm), eps);
-pv_rel_se     = PV_used_1sd      ./ max(PV_used, eps);
 
-u_atoms_se  = abs(u_atoms)  .* sqrt(ppm_rel_se_u.^2  + pv_rel_se.^2);
-th_atoms_se = abs(th_atoms) .* sqrt(ppm_rel_se_th.^2 + pv_rel_se.^2);
+% The concentration uncertainties already include the applicable pit-volume
+% terms. Do not add them again while constructing the atoms/g values used
+% by the age calculation.
+u_atoms_se  = abs(u_atoms)  .* ppm_rel_se_u;
+th_atoms_se = abs(th_atoms) .* ppm_rel_se_th;
 
 u_atoms_g    = u_atoms    ./ grain_mass;  th_atoms_g    = th_atoms    ./ grain_mass;
-u_atoms_g_se = u_atoms_se ./ grain_mass;  th_atoms_g_se = th_atoms_se ./ grain_mass;
-sm_atoms_g   = sm_atoms   ./ grain_mass;  sm_atoms_g_se = sm_atoms_se ./ grain_mass;
+u_atoms_g_se = (outtbl.u_ppm_se  / 1e6) / MW_U  .* NA;
+th_atoms_g_se= (outtbl.th_ppm_se / 1e6) / MW_Th .* NA;
+sm_atoms_g   = sm_atoms ./ grain_mass;
+sm_atoms_g_se= (outtbl.sm_ppm_se / 1e6) / MW_Sm .* NA;
 
 mask_nan = ~is_unknown;
 u_atoms(mask_nan)=NaN;      th_atoms(mask_nan)=NaN;     sm_atoms(mask_nan)=NaN;
@@ -1115,6 +1167,27 @@ function pv = read_pv_csv(csvPath, label)
 end
 
 
+function rse = scalar_reference_rse(knownValue, known1sd)
+if isfinite(knownValue) && knownValue > 0 && ...
+        isfinite(known1sd) && known1sd >= 0
+    rse = known1sd / knownValue;
+else
+    rse = 0;
+end
+end
+
+
+function rse = median_reference_rse(knownValues, known1sdValues)
+valid = isfinite(knownValues) & knownValues > 0 & ...
+    isfinite(known1sdValues) & known1sdValues >= 0;
+if any(valid)
+    rse = median(known1sdValues(valid) ./ knownValues(valid), 'omitnan');
+else
+    rse = 0;
+end
+end
+
+
 function outtbl = add_parent_production(outtbl, smReferenceBasis)
 f238=0.992742; f235=0.007204; f147Sm=0.1499;
 lam238=1.55125e-10; lam235=9.8485e-10; lam232=4.9475e-11; lam147=6.54e-12;
@@ -1132,7 +1205,9 @@ else
 end
 
 R    = 8*lam238.*N238 + 7*lam235.*N235 + 6*lam232.*N232 + lam147.*N147;
-R_se = sqrt((8*lam238.*N238_se).^2+(7*lam235.*N235_se).^2+ ...
+% 238U and 235U share one total-U measurement and one uncertainty term.
+uProductionCoefficient = 8*lam238*f238 + 7*lam235*f235;
+R_se = sqrt((uProductionCoefficient.*U_ag_se).^2 + ...
             (6*lam232.*N232_se).^2+(lam147.*N147_se).^2);
 outtbl.n238_atoms_g=N238; outtbl.n238_atoms_g_se=N238_se;
 outtbl.n235_atoms_g=N235; outtbl.n235_atoms_g_se=N235_se;
