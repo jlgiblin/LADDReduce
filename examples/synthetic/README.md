@@ -26,10 +26,10 @@ result = run_synthetic_examples('/path/to/new/example_output');
 Each mineral folder contains:
 
 - ordinary blank-corrected helium input;
-- air calibration and sample-type tables;
+- air calibration and helium metadata tables;
 - He and U-Th pit-volume tables;
 - raw-style parent-isotope time-series CSVs;
-- parent metadata;
+- parent metadata and a reference-material lookup table;
 - reduced helium and parent tables; and
 - the final LADD age table.
 

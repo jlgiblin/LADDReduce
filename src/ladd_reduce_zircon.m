@@ -12,6 +12,9 @@ function outtbl = ladd_reduce_zircon(rawFolder, metadataFile, ...
 %   'AnchorMode'          following, median, or single (default following)
 %   'SingleBridgeID'      required when AnchorMode is single
 %   'UthAverage1SD'       required when uthPitVolumeSource is numeric
+%   'ReferenceLookupFile' user-supplied standard concentrations; optional
+%                         when known_* values are already in metadata
+%   'RunOrder'            explicit raw-file prefix order for metadata sorting
 %   'AllowBridgeOnly'     explicitly allow a run with no NIST glass
 %   'OutputFile'          output CSV path (default: no file)
 %   'ExcludeNistFiles'    documented bad NIST measurement filenames
@@ -29,6 +32,8 @@ addParameter(p, 'AnchorMode', "following", @(x)ischar(x) || isstring(x));
 addParameter(p, 'SingleBridgeID', "", @(x)ischar(x) || isstring(x));
 addParameter(p, 'UthAverage1SD', NaN, ...
     @(x)isnumeric(x) && isscalar(x));
+addParameter(p, 'ReferenceLookupFile', "", @(x)ischar(x) || isstring(x));
+addParameter(p, 'RunOrder', strings(0,1), @(x)iscell(x) || isstring(x));
 addParameter(p, 'AllowBridgeOnly', false, ...
     @(x)islogical(x) || isnumeric(x));
 addParameter(p, 'OutputFile', "", @(x)ischar(x) || isstring(x));
@@ -54,7 +59,20 @@ end
 assert(strlength(strtrim(string(opt.BridgeStandardName))) > 0, ...
     'ladd_reduce_zircon: BridgeStandardName must be explicitly supplied.');
 
-outtbl = ladd_reduce_zircon_pvmeas(char(rawFolder), char(metadataFile), ...
+metadataForRun = char(metadataFile);
+cleanupMetadata = [];
+lookupFile = strtrim(string(opt.ReferenceLookupFile));
+if strlength(lookupFile) > 0
+    assert(isfile(lookupFile), ...
+        'ladd_reduce_zircon: reference lookup file not found: %s', lookupFile);
+    enriched = ladd_enrich_metadata(metadataFile, ...
+        'lookupTable', lookupFile, 'runOrder', opt.RunOrder);
+    metadataForRun = [tempname, '.csv'];
+    writetable(enriched, metadataForRun);
+    cleanupMetadata = onCleanup(@() delete_if_exists(metadataForRun));
+end
+
+outtbl = ladd_reduce_zircon_pvmeas(char(rawFolder), metadataForRun, ...
     char(hePitVolumeFile), uthPitVolumeSource, ...
     'bridgeStandardName', char(string(opt.BridgeStandardName)), ...
     'anchorMode', char(string(opt.AnchorMode)), ...
@@ -64,4 +82,9 @@ outtbl = ladd_reduce_zircon_pvmeas(char(rawFolder), char(metadataFile), ...
     'saveAs', char(string(opt.OutputFile)), ...
     'excludeNistFiles', opt.ExcludeNistFiles, ...
     'excludeBridgeIDs', opt.ExcludeBridgeIDs);
+clear cleanupMetadata
+end
+
+function delete_if_exists(pathText)
+if isfile(pathText), delete(pathText); end
 end

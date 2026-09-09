@@ -72,14 +72,6 @@ grainids = [nistIDs(1);bridgeIDs(1);sampleIDs(1);nistIDs(2); ...
     bridgeIDs(2);sampleIDs(2);nistIDs(3);bridgeIDs(3)];
 
 knownU = NaN(8,1); knownTh = NaN(8,1); knownSm = NaN(8,1);
-knownU(types == "NIST612") = 40;
-knownTh(types == "NIST612") = 40;
-knownU(types == "MineralStd") = bridgeU;
-knownTh(types == "MineralStd") = bridgeTh;
-if mineral == "apatite"
-    knownSm(types == "NIST612") = 40;
-    knownSm(types == "MineralStd") = bridgeSm;
-end
 
 residualPV = 500;
 bridgePV = 1000;
@@ -111,6 +103,22 @@ metadata = table(fileNames,types,stdnames,grainids,knownU,knownTh,knownSm, ...
     'known_th_ppm','known_sm_ppm'});
 metadataFile = fullfile(mineralDir,'parent_metadata.csv');
 writetable(metadata,metadataFile);
+
+lookupNames = ["NIST612";"ReferenceMaterial"];
+lookupU = [40;bridgeU];
+lookupTh = [40;bridgeTh];
+if mineral == "apatite"
+    lookupSm = [40;bridgeSm];
+else
+    lookupSm = [NaN;NaN];
+end
+lookupBasis = ["total";"total"];
+lookupReference = ["synthetic fixture";"synthetic fixture"];
+referenceLookup = table(lookupNames,lookupU,lookupTh,lookupSm, ...
+    lookupBasis,lookupReference,'VariableNames',{'stdname','known_u_ppm', ...
+    'known_th_ppm','known_sm_ppm','sm_reference_basis','reference'});
+referenceLookupFile = fullfile(mineralDir,'reference_material_lookup.csv');
+writetable(referenceLookup,referenceLookupFile);
 
 hePV = table(sampleIDs,repmat(1000,2,1),repmat(20,2,1), ...
     'VariableNames',{'GrainID','PitVol_um3','PV1SD_um3'});
@@ -148,7 +156,7 @@ writetable(airCalibration,airFile);
 
 sampleTypes = table(["Air";"Blank";"SampleA"],[1;2;3], ...
     'VariableNames',{'SampleName','RunScript'});
-typeFile = fullfile(mineralDir,'sample_types.csv');
+typeFile = fullfile(mineralDir,'helium_metadata.csv');
 writetable(sampleTypes,typeFile);
 
 heOutput = fullfile(mineralDir,'helium_reduced.csv');
@@ -160,11 +168,13 @@ ladd_reduce_helium(heInputFile,hePVFile,airFile,typeFile, ...
 if mineral == "apatite"
     ladd_reduce_apatite(rawDir,metadataFile,hePVFile,uthPVFile, ...
         'BridgeStandardName','ReferenceMaterial', ...
+        'ReferenceLookupFile',referenceLookupFile, ...
         'SmReferenceBasis','total','AnchorMode','median', ...
         'OutputFile',parentOutput);
 else
     ladd_reduce_zircon(rawDir,metadataFile,hePVFile,uthPVFile, ...
         'BridgeStandardName','ReferenceMaterial','AnchorMode','median', ...
+        'ReferenceLookupFile',referenceLookupFile, ...
         'OutputFile',parentOutput);
 end
 ages = ladd_calculate_ages(heOutput,parentOutput, ...
@@ -177,7 +187,11 @@ assert(all(abs(ages.Age_Ma-targetAge) < 0.02), ...
 
 result = struct('target_age_Ma',targetAge,'ages',ages, ...
     'helium_output',string(heOutput),'parent_output',string(parentOutput), ...
-    'age_output',string(ageOutput));
+    'age_output',string(ageOutput),'metadata_file',string(metadataFile), ...
+    'reference_lookup_file',string(referenceLookupFile), ...
+    'he_pit_volume_file',string(hePVFile), ...
+    'uth_pit_volume_file',string(uthPVFile), ...
+    'raw_parent_folder',string(rawDir));
 end
 
 function he = heliumAtAge(ageMa,ppm,mineral)

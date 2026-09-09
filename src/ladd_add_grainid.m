@@ -56,6 +56,15 @@ strip_path = @(f) char(regexp(string(f), '[^/\\]+$', 'match', 'once'));
 md_files   = cellfun(strip_path, cellstr(md.file), 'UniformOutput', false);
 md_grainid = cellstr(md.grainid);
 
+% A duplicate filename makes every downstream metadata and GrainID join
+% ambiguous. Stop instead of silently taking the first matching row.
+md_keys = lower(string(md_files));
+[uniqueKeys,~,keyGroup] = unique(md_keys);
+duplicateKeys = uniqueKeys(accumarray(keyGroup,1) > 1);
+assert(isempty(duplicateKeys), ...
+    'ladd_add_grainid: duplicate metadata filename(s): %s', ...
+    strjoin(duplicateKeys, ', '));
+
 % ── Join GrainID onto output table ────────────────────────────────────────
 T_files = cellfun(strip_path, cellstr(T.file), 'UniformOutput', false);
 

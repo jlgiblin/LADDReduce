@@ -3,21 +3,24 @@ function mdOut = ladd_enrich_metadata(metadataCsv, varargin)
 % a standard lookup table, then write an enriched metadata CSV ready for
 % the public parent-isotope reducers.
 %
-% This is a pre-processing step that sits BEFORE reduce_core. It reads your
-% metadata CSV, looks up known concentrations for any recognised stdname,
-% and fills in blank cells. You can still override any value manually in the
-% metadata CSV — existing non-blank values are never overwritten.
+% The public parent reducers call this helper automatically when
+% ReferenceLookupFile is supplied. It can also be run separately to inspect
+% or save the enriched metadata. Existing non-blank values are never
+% overwritten.
 %
 % USAGE
 %   % Enrich in place (returns table, no file written unless saveAs given)
 %   md = ladd_enrich_metadata('my_metadata.csv', ...
 %       'lookupTable','reference_material_lookup.csv');
 %
-%   % Write enriched CSV and pass directly to reduce_core
+%   % Write an enriched CSV for review or later reuse
 %   md = ladd_enrich_metadata('my_metadata.csv', ...
 %       'lookupTable','reference_material_lookup.csv', ...
 %       'saveAs','my_metadata_enriched.csv');
-%   out = ladd_reduce_zircon('/run/folder/', 'my_metadata_enriched.csv', 'saveAs','out.csv');
+%   out = ladd_reduce_zircon('/run/folder/', ...
+%       'my_metadata_enriched.csv','he_pit_volumes.csv', ...
+%       'uth_pit_volumes.csv','BridgeStandardName','ReferenceMaterial', ...
+%       'OutputFile','parents_reduced.csv');
 %
 %   % The lookup table is always user supplied. The public package does not
 %   % embed laboratory reference-material concentrations.
@@ -29,20 +32,19 @@ function mdOut = ladd_enrich_metadata(metadataCsv, varargin)
 %   'lookupTable' : REQUIRED path to the user's standard lookup CSV
 %   'saveAs'      : write enriched table to this path (default '' = no write)
 %   'verbose'     : true/false — print matching summary (default true)
-%   'runOrder'    : cell array of filename prefixes in chronological run order,
+%   'runOrder'    : optional cell array of filename prefixes in chronological run order,
 %                   e.g. {'RunA', 'RunB'}. Use this when two or more
 %                   independent runs share a folder and their files have
 %                   overlapping index numbers (_1…N each). Prefixes not listed
 %                   are appended alphabetically after those specified.
-%                   If omitted, prefixes are sorted alphabetically (fine for
-%                   single-run sessions; may be wrong for multi-run sessions).
+%                   If omitted, the metadata row order is preserved.
 %                   Example:
 %                     md = ladd_enrich_metadata('meta.csv', ...
 %                            'runOrder', {'RunA','RunB'}, ...
 %                            'saveAs',   'meta_enriched.csv');
 %
 % LOOKUP TABLE FORMAT
-%   stdname        — standard name (case-insensitive substring match)
+%   stdname        — standard name (case-insensitive normalized match)
 %   known_u_ppm    — U concentration in ppm
 %   known_th_ppm   — Th concentration in ppm
 %   known_sm_ppm   — Sm concentration on the basis documented by the user;
@@ -52,8 +54,10 @@ function mdOut = ladd_enrich_metadata(metadataCsv, varargin)
 %
 % MATCHING LOGIC
 %   For each metadata row with a non-empty stdname, the code normalises both
-%   the metadata stdname and each lookup table entry (lowercase, strip spaces
-%   and underscores) and checks for a substring match. The FIRST match wins.
+%   the metadata stdname and each lookup table entry (lowercase, strip spaces,
+%   underscores, and hyphens). Exact normalized matches are preferred. A
+%   unique substring match is accepted for decorated run labels; ambiguous
+%   matches stop with an error instead of silently choosing one standard.
 %   Existing non-blank known_* values in the metadata are NEVER overwritten.
 %
 % EXAMPLES OF MATCHING
@@ -110,12 +114,12 @@ md.Properties.VariableNames = lower(md.Properties.VariableNames);
 %      {'RunA', 'RunB'}. Any prefixes not listed are appended last
 %      in alphabetical order. Use this when filesystem timestamps are
 %      unreliable (e.g. Dropbox re-upload resets mtimes).
-%   2. Alphabetical by prefix otherwise (deterministic, but not guaranteed
-%      chronological — add a runOrder call if order matters for your session).
+%   2. Existing metadata row order otherwise. LADDReduce never invents a
+%      chronological order from alphabetical filenames.
 %
 % Within each prefix group, files are always sorted by trailing index (natural
 % numeric: _1, _2 … _9, _10, _11, not lexicographic).
-if ismember('file', md.Properties.VariableNames)
+if ismember('file', md.Properties.VariableNames) && ~isempty(runOrder)
     fnames   = cellstr(md.file);
     prefixes = cell(height(md), 1);
     idx_nums = zeros(height(md), 1);
@@ -133,21 +137,17 @@ if ismember('file', md.Properties.VariableNames)
         end
     end
 
-    unique_pfx = unique(prefixes);   % alphabetical by default
+    unique_pfx = unique(prefixes);
 
-    if ~isempty(runOrder)
-        % Validate supplied prefixes
-        unknown_pfx = setdiff(runOrder, unique_pfx);
-        if ~isempty(unknown_pfx)
-            warning('ladd_enrich_metadata: runOrder contains prefix(es) not found in metadata: %s', ...
-                strjoin(unknown_pfx, ', '));
-        end
-        % Build ordered list: supplied prefixes first, then any remainder alphabetically
-        remainder = setdiff(unique_pfx, runOrder);
-        ordered_pfx = [runOrder(:); remainder(:)];
-    else
-        ordered_pfx = unique_pfx(:);   % alphabetical fallback
+    % Validate supplied prefixes
+    unknown_pfx = setdiff(runOrder, unique_pfx);
+    if ~isempty(unknown_pfx)
+        warning('ladd_enrich_metadata: runOrder contains prefix(es) not found in metadata: %s', ...
+            strjoin(unknown_pfx, ', '));
     end
+    % Build ordered list: supplied prefixes first, then any remainder alphabetically
+    remainder = setdiff(unique_pfx, runOrder);
+    ordered_pfx = [runOrder(:); remainder(:)];
 
     % Assign a group rank to each row based on ordered_pfx
     pfx_rank = containers.Map(ordered_pfx, num2cell(1:numel(ordered_pfx)));
@@ -159,12 +159,7 @@ if ismember('file', md.Properties.VariableNames)
     [~, sort_ord] = sortrows([rank_key, idx_nums]);
     md = md(sort_ord, :);
 
-    if ~isempty(runOrder)
-        fprintf('  Sorted to natural run order (user-specified runOrder, then file index)\n');
-    else
-        fprintf('  Sorted to natural run order (alphabetical by prefix, then file index)\n');
-        fprintf('  TIP: if runs were not acquired alphabetically, pass ''runOrder'',{{''PFX1'',''PFX2'',...}}\n');
-    end
+    fprintf('  Sorted to natural run order (user-specified runOrder, then file index)\n');
     fprintf('  Run order: %s\n', strjoin(ordered_pfx, ' → '));
 end
 
@@ -213,6 +208,11 @@ end
 
 % Normalised lookup keys for matching
 lk_norm = arrayfun(@norm_id, lk.stdname, 'UniformOutput', false);
+[uniqueLookupKeys, ~, lookupGroup] = unique(lk_norm);
+duplicateKeys = uniqueLookupKeys(accumarray(lookupGroup(:),1) > 1);
+assert(isempty(duplicateKeys), ...
+    'ladd_enrich_metadata: lookup table contains duplicate normalized stdname values: %s', ...
+    strjoin(duplicateKeys, ', '));
 
 % ── Fill in missing known values ──────────────────────────────────────────
 nFilled  = 0;
@@ -230,15 +230,21 @@ for i = 1:height(md)
 
     sn_norm = norm_id(sn);
 
-    % Find first lookup entry whose normalised name is a substring of sn_norm
-    % OR sn_norm is a substring of the lookup entry
-    matchIdx = [];
-    for k = 1:numel(lk_norm)
-        lk_key = lk_norm{k};
-        if contains(sn_norm, lk_key) || contains(lk_key, sn_norm)
-            matchIdx = k;
-            break;
+    % Prefer an exact normalized match. A unique substring match supports
+    % decorated labels such as run-specific prefixes/suffixes without making
+    % lookup-table row order scientifically consequential.
+    matchIdx = find(strcmp(sn_norm, lk_norm));
+    if isempty(matchIdx)
+        candidates = find(cellfun(@(key) contains(sn_norm,key) || ...
+            contains(key,sn_norm), lk_norm));
+        if numel(candidates) > 1
+            candidateNames = string(lk.stdname(candidates));
+            error('ladd_enrich_metadata:AmbiguousStandardMatch', ...
+                ['Metadata stdname "%s" matches multiple lookup entries: %s. ' ...
+                 'Use an exact, unique standard name.'], ...
+                sn, strjoin(candidateNames, ', '));
         end
+        matchIdx = candidates;
     end
 
     if isempty(matchIdx)

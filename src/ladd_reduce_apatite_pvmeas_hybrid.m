@@ -1,5 +1,5 @@
 function outtbl = ladd_reduce_apatite_pvmeas_hybrid(folder, metadataCsv, hePitVolCsv, ...
-    uthPitVolCsv, varargin)
+    uthPitVolSource, varargin)
 % LADD_REDUCE_APATITE_PVMEAS_HYBRID  UThSm reduction for apatite, combining
 % the excel-match bracket arithmetic with the Hampel-filtered/NIST-tracked
 % robustness of ladd_reduce_apatite_pvmeas.
@@ -13,8 +13,8 @@ function outtbl = ladd_reduce_apatite_pvmeas_hybrid(folder, metadataCsv, hePitVo
 %   mineral-bridge calculation.
 %
 %   Robustness layered in from ladd_reduce_apatite_pvmeas:
-%     1. NIST612 Hampel-reviewed drift correction still runs first (via
-%        reduce_core_pv, mode='nois') and its ppm values are RETAINED as
+%     1. When NIST612 was analyzed, its Hampel-reviewed drift correction runs
+%        first (via reduce_core_pv, mode='nois') and its ppm values are retained as
 %        u_ppm_nist612 / th_ppm_nist612 / sm_ppm_nist612 — a visible,
 %        trackable QC cross-check — but are NOT used as the bracket
 %        multiplier, preserving the excel-match arithmetic. NIST review
@@ -103,6 +103,11 @@ function outtbl = ladd_reduce_apatite_pvmeas_hybrid(folder, metadataCsv, hePitVo
 %   'SmMinCps'            : min Sm cps, for NIST-QC column only (default 150)
 %   'SmRelSEmax'          : max relative SE on Sm, for NIST-QC column only (default 0.40)
 %   'nistCheckTolPct'     : QA warn threshold for NIST-vs-known bridge mismatch, percent (default 25)
+%   'allowBridgeOnly'     : false by default. Set true for a documented
+%                          bridge-calibrated session with no NIST612 glass.
+%                          Direct NIST anchor modes still require NIST612.
+%   'uthAverage1sd'       : required positive 1SD (um3) when uthPitVolSource
+%                          is a numeric session average
 
 % ── Parse arguments ────────────────────────────────────────────────────────
 p = inputParser;
@@ -127,16 +132,30 @@ p.addParameter('SmMaxPlaus',         7500,     @(x)isnumeric(x)&&isscalar(x));
 p.addParameter('SmMinCps',           150,      @(x)isnumeric(x)&&isscalar(x));
 p.addParameter('SmRelSEmax',         0.40,     @(x)isnumeric(x)&&isscalar(x));
 p.addParameter('nistCheckTolPct',    25,       @(x)isnumeric(x)&&isscalar(x));
+p.addParameter('allowBridgeOnly',    false,    @(x)islogical(x)||isnumeric(x));
+p.addParameter('uthAverage1sd',      NaN,      @(x)isnumeric(x)&&isscalar(x));
 p.parse(varargin{:});
 
 saveAs      = p.Results.saveAs;
 bridgeName  = char(string(p.Results.bridgeStandardName));
 anchorMode  = lower(char(string(p.Results.anchorMode)));
 smReferenceBasis = lower(char(string(p.Results.smReferenceBasis)));
+allowBridgeOnly = logical(p.Results.allowBridgeOnly);
+uthAverage1sd = p.Results.uthAverage1sd;
+useAverageUthPit = isnumeric(uthPitVolSource);
+if useAverageUthPit
+    assert(isscalar(uthPitVolSource) && isfinite(uthPitVolSource) && ...
+        uthPitVolSource > 0, ...
+        'Numeric uthPitVolSource must be one positive average volume in um3.');
+    assert(isfinite(uthAverage1sd) && uthAverage1sd > 0, ...
+        ['uthAverage1sd must be explicitly supplied and positive when using ', ...
+         'an average U-Th pit volume.']);
+end
 assert(any(strcmp(anchorMode,{'nearest','median','nist_following','nist_interpolated'})), ...
     ['ladd_reduce_apatite_pvmeas_hybrid: anchorMode must be ''nearest'', ', ...
      '''median'', ''nist_following'', or ''nist_interpolated''.']);
-if any(strcmp(anchorMode,{'nist_following','nist_interpolated'}))
+usesDirectNist = any(strcmp(anchorMode,{'nist_following','nist_interpolated'}));
+if usesDirectNist
     % Direct NIST control: the calibration anchor is NIST612 itself, not
     % the mineral bridge named by bridgeStandardName.
     bridgeName = 'NIST612';
@@ -184,7 +203,24 @@ rho_apatite  = 3.19;
 cm3_per_um3  = 1e-12;
 
 % ── Step 1: Run reduce_core_pv (NIST612 Hampel-filtered drift correction) ──
-fprintf('ladd_reduce_apatite_pvmeas_hybrid: running reduce_core_pv (NIST612 pass)...\n');
+[coreMetadataCsv, tempMetadataCsv, nTrueNist, nBridgeCoreRows] = ...
+    prepare_core_metadata(metadataCsv, bridgeName, allowBridgeOnly, usesDirectNist);
+cleanupCoreMetadata = onCleanup(@() delete_if_exists(tempMetadataCsv));
+hasIndependentNist = nTrueNist > 0;
+if usesDirectNist
+    calibrationPath = "NIST612_DIRECT";
+elseif hasIndependentNist
+    calibrationPath = "NIST612_THEN_BRIDGE";
+else
+    calibrationPath = "BRIDGE_ONLY_NO_NIST";
+end
+fprintf('  Genuine NIST612 rows available: %d\n', nTrueNist);
+if ~hasIndependentNist
+    fprintf(['  Bridge-only session: %d "%s" rows supply the parent ', ...
+        'calibration; no independent NIST612 comparison is available.\n'], ...
+        nBridgeCoreRows, bridgeName);
+end
+fprintf('ladd_reduce_apatite_pvmeas_hybrid: extracting parent signals...\n');
 
 cfg = struct( ...
     'mineral',             'apatite',  ...
@@ -207,12 +243,13 @@ cfg = struct( ...
     'SmRelSEmax',          p.Results.SmRelSEmax  ...
 );
 
-outtbl = reduce_core_pv(folder, metadataCsv, cfg, ...
+outtbl = reduce_core_pv(folder, coreMetadataCsv, cfg, ...
     'parentScalarInterp', interpMth, ...
     'kMAD', kMAD, ...
     'nistHalfWin', nistHalfWin, ...
     'autoExcludeNistReviews', autoExcludeNistReviews, ...
     'excludeNistFiles', excludeNistFiles);
+clear cleanupCoreMetadata
 fprintf('  reduce_core_pv complete: %d rows\n', height(outtbl));
 
 % Stash the NIST612-anchored ppm as QC columns BEFORE anything overwrites them.
@@ -225,11 +262,17 @@ cn0     = lower(outtbl.Properties.VariableNames);
 col_u0  = find(strcmp(cn0,'u_ppm'),  1);
 col_th0 = find(strcmp(cn0,'th_ppm'), 1);
 col_sm0 = find(strcmp(cn0,'sm_ppm'), 1);
-outtbl.u_ppm_nist612  = double(outtbl{:,col_u0});
-outtbl.th_ppm_nist612 = double(outtbl{:,col_th0});
-if ~isempty(col_sm0)
-    outtbl.sm_ppm_nist612 = double(outtbl{:,col_sm0});
+if hasIndependentNist
+    outtbl.u_ppm_nist612  = double(outtbl{:,col_u0});
+    outtbl.th_ppm_nist612 = double(outtbl{:,col_th0});
+    if ~isempty(col_sm0)
+        outtbl.sm_ppm_nist612 = double(outtbl{:,col_sm0});
+    else
+        outtbl.sm_ppm_nist612 = NaN(height(outtbl),1);
+    end
 else
+    outtbl.u_ppm_nist612 = NaN(height(outtbl),1);
+    outtbl.th_ppm_nist612 = NaN(height(outtbl),1);
     outtbl.sm_ppm_nist612 = NaN(height(outtbl),1);
 end
 
@@ -240,11 +283,15 @@ outtbl = ladd_add_grainid(outtbl, metadataCsv);
 md_join = readtable(metadataCsv, 'VariableNamingRule','preserve', ...
     'TextType','string', 'Delimiter',',');
 md_join.Properties.VariableNames = lower(md_join.Properties.VariableNames);
+assert(all(ismember({'file','type','stdname','known_u_ppm','known_th_ppm'}, ...
+    md_join.Properties.VariableNames)), ...
+    'ladd_reduce_apatite_pvmeas_hybrid: metadata lacks required columns.');
 strip_path = @(f) char(regexp(string(f), '[^/\\]+$', 'match', 'once'));
 md_files_j  = cellfun(strip_path, cellstr(md_join.file), 'UniformOutput', false);
 out_files_j = cellfun(strip_path, cellstr(outtbl.file),  'UniformOutput', false);
 
 ku_join=NaN(height(outtbl),1); kth_join=NaN(height(outtbl),1); ksm_join=NaN(height(outtbl),1);
+sourceType = strings(height(outtbl),1); sourceStdName = strings(height(outtbl),1);
 for ii = 1:height(outtbl)
     idx_j = find(strcmp(out_files_j{ii}, md_files_j), 1);
     if ~isempty(idx_j)
@@ -253,22 +300,41 @@ for ii = 1:height(outtbl)
         if ismember('known_sm_ppm', md_join.Properties.VariableNames)
             ksm_join(ii) = double(md_join.known_sm_ppm(idx_j));
         end
+        sourceType(ii) = string(md_join.type(idx_j));
+        sourceStdName(ii) = string(md_join.stdname(idx_j));
     end
 end
 outtbl.known_u_ppm  = ku_join;
 outtbl.known_th_ppm = kth_join;
 outtbl.known_sm_ppm = ksm_join;
+outtbl.type = sourceType;
+outtbl.stdname = sourceStdName;
+if ~hasIndependentNist
+    outtbl.nist_u_anchor_role(:) = "NOT_AVAILABLE_BRIDGE_ONLY";
+    outtbl.nist_th_anchor_role(:) = "NOT_AVAILABLE_BRIDGE_ONLY";
+    outtbl.nist_sm_anchor_role(:) = "NOT_AVAILABLE_BRIDGE_ONLY";
+    outtbl.nist_review_kmad(:) = NaN;
+    outtbl.nist_review_half_window(:) = NaN;
+    outtbl.nist_auto_exclude_reviews(:) = false;
+end
 fprintf('  Joined known ppm: %d/%d rows matched\n', sum(isfinite(ku_join)), height(outtbl));
 
 % ── Step 2 (pre): Read and assign pit volumes ─────────────────────────────
 fprintf('ladd_reduce_apatite_pvmeas_hybrid: reading pit volumes...\n');
 hpv = read_pv_csv(hePitVolCsv,  'He');
-upv = read_pv_csv(uthPitVolCsv, 'UTh');
+if useAverageUthPit
+    fprintf('  Using declared average UTh pit volume: %.6g +/- %.6g um3 (1SD)\n', ...
+        uthPitVolSource, uthAverage1sd);
+else
+    upv = read_pv_csv(uthPitVolSource, 'UTh');
+end
 
 norm_id  = @(s) lower(regexprep(strtrim(char(string(s))), '[\s_\-]+', '-'));
 gids_out = cellfun(@(x) norm_id(x), cellstr(outtbl.grainid), 'UniformOutput', false);
 gids_hpv = cellfun(@(x) norm_id(x), hpv.ids,                'UniformOutput', false);
-gids_upv = cellfun(@(x) norm_id(x), upv.ids,                'UniformOutput', false);
+if ~useAverageUthPit
+    gids_upv = cellfun(@(x) norm_id(x), upv.ids, 'UniformOutput', false);
+end
 
 nR     = height(outtbl);
 PV_He  = NaN(nR,1); PV_He_1sd  = NaN(nR,1);
@@ -280,8 +346,13 @@ for i = 1:nR
     if ~is_unknown_pre(i), continue; end
     ih = find(strcmp(gids_out{i}, gids_hpv), 1);
     if ~isempty(ih), PV_He(i)  = hpv.vols(ih); PV_He_1sd(i)  = hpv.sds(ih);  end
-    iu = find(strcmp(gids_out{i}, gids_upv), 1);
-    if ~isempty(iu), PV_UTh(i) = upv.vols(iu); PV_UTh_1sd(i) = upv.sds(iu);  end
+    if useAverageUthPit
+        PV_UTh(i) = uthPitVolSource;
+        PV_UTh_1sd(i) = uthAverage1sd;
+    else
+        iu = find(strcmp(gids_out{i}, gids_upv), 1);
+        if ~isempty(iu), PV_UTh(i) = upv.vols(iu); PV_UTh_1sd(i) = upv.sds(iu); end
+    end
 end
 
 % UTh pit volumes for bridge-standard rows (no He pit — use full UTh PV)
@@ -301,8 +372,13 @@ if n_bridge_rows < 1
 end
 for i = 1:nR
     if ~is_bridge_pre(i), continue; end
-    iu = find(strcmp(gids_out{i}, gids_upv), 1);
-    if ~isempty(iu), PV_UTh(i) = upv.vols(iu); PV_UTh_1sd(i) = upv.sds(iu); end
+    if useAverageUthPit
+        PV_UTh(i) = uthPitVolSource;
+        PV_UTh_1sd(i) = uthAverage1sd;
+    else
+        iu = find(strcmp(gids_out{i}, gids_upv), 1);
+        if ~isempty(iu), PV_UTh(i) = upv.vols(iu); PV_UTh_1sd(i) = upv.sds(iu); end
+    end
 end
 
 PV_used     = NaN(nR,1); PV_used_1sd = NaN(nR,1);
@@ -531,31 +607,39 @@ bridge_seqs = seq_all(is_valid_bridge);
 fprintf('  Bridge-standard analyses used as anchors: %d\n', numel(bridge_seqs));
 
 % ---- QA: NIST612-anchored ppm vs declared known ppm for the bridge std ---
-% Purely diagnostic — does not affect the calibration below. This is the
-% early-warning check for standard-identity / NIST-drift problems.
-qa_u  = outtbl.u_ppm_nist612(bridge_seqs)  ./ known_u_all(bridge_seqs);
-qa_th = outtbl.th_ppm_nist612(bridge_seqs) ./ known_th_all(bridge_seqs);
-med_qa_u  = median(qa_u,  'omitnan');
-med_qa_th = median(qa_th, 'omitnan');
-med_nist_bridge_u  = median(outtbl.u_ppm_nist612(bridge_seqs), 'omitnan');
-med_nist_bridge_th = median(outtbl.th_ppm_nist612(bridge_seqs), 'omitnan');
-med_nist_bridge_sm = median(outtbl.sm_ppm_nist612(bridge_seqs), 'omitnan');
-qaRobStd = @(x) 1.4826*mad(x(isfinite(x)),1);
-rel_nist_bridge_u  = qaRobStd(outtbl.u_ppm_nist612(bridge_seqs))  / max(eps,abs(med_nist_bridge_u));
-rel_nist_bridge_th = qaRobStd(outtbl.th_ppm_nist612(bridge_seqs)) / max(eps,abs(med_nist_bridge_th));
-rel_nist_bridge_sm = qaRobStd(outtbl.sm_ppm_nist612(bridge_seqs)) / max(eps,abs(med_nist_bridge_sm));
-med_qa_sm = NaN;
-if strcmp(smReferenceBasis,'total') && any(isfinite(known_sm_all(bridge_seqs)) & known_sm_all(bridge_seqs)>0)
-    qa_sm = outtbl.sm_ppm_nist612(bridge_seqs) ./ known_sm_all(bridge_seqs);
-    med_qa_sm = median(qa_sm, 'omitnan');
-end
-fprintf('  QA — bridge standard NIST612-anchored ppm / known ppm: U=%.2f  Th=%.2f (1.00 = perfect agreement)\n', ...
-    med_qa_u, med_qa_th);
-nistMismatch = abs(med_qa_u-1)*100 > nistTolPct || abs(med_qa_th-1)*100 > nistTolPct;
-if nistMismatch
-    fprintf(['  QA WARNING: bridge standard disagrees with NIST612-anchored calibration by >%.0f%%. ', ...
-             'This does not affect the excel-style bracket result below, but is worth investigating ', ...
-             '(matrix mismatch, NIST612 drift, or bridge-standard identity).\n'], nistTolPct);
+% Purely diagnostic — does not affect bridge calibration. It is available
+% only when actual NIST612 glass was included in the session.
+if hasIndependentNist
+    qa_u  = outtbl.u_ppm_nist612(bridge_seqs)  ./ known_u_all(bridge_seqs);
+    qa_th = outtbl.th_ppm_nist612(bridge_seqs) ./ known_th_all(bridge_seqs);
+    med_qa_u  = median(qa_u,  'omitnan');
+    med_qa_th = median(qa_th, 'omitnan');
+    med_nist_bridge_u  = median(outtbl.u_ppm_nist612(bridge_seqs), 'omitnan');
+    med_nist_bridge_th = median(outtbl.th_ppm_nist612(bridge_seqs), 'omitnan');
+    med_nist_bridge_sm = median(outtbl.sm_ppm_nist612(bridge_seqs), 'omitnan');
+    qaRobStd = @(x) 1.4826*mad(x(isfinite(x)),1);
+    rel_nist_bridge_u  = qaRobStd(outtbl.u_ppm_nist612(bridge_seqs))  / max(eps,abs(med_nist_bridge_u));
+    rel_nist_bridge_th = qaRobStd(outtbl.th_ppm_nist612(bridge_seqs)) / max(eps,abs(med_nist_bridge_th));
+    rel_nist_bridge_sm = qaRobStd(outtbl.sm_ppm_nist612(bridge_seqs)) / max(eps,abs(med_nist_bridge_sm));
+    med_qa_sm = NaN;
+    if strcmp(smReferenceBasis,'total') && any(isfinite(known_sm_all(bridge_seqs)) & known_sm_all(bridge_seqs)>0)
+        qa_sm = outtbl.sm_ppm_nist612(bridge_seqs) ./ known_sm_all(bridge_seqs);
+        med_qa_sm = median(qa_sm, 'omitnan');
+    end
+    fprintf('  QA — bridge standard NIST612-anchored ppm / known ppm: U=%.2f  Th=%.2f (1.00 = perfect agreement)\n', ...
+        med_qa_u, med_qa_th);
+    nistMismatch = abs(med_qa_u-1)*100 > nistTolPct || abs(med_qa_th-1)*100 > nistTolPct;
+    if nistMismatch
+        fprintf(['  QA WARNING: bridge standard disagrees with NIST612-anchored calibration by >%.0f%%. ', ...
+                 'This does not affect the bridge result, but is worth investigating ', ...
+                 '(matrix mismatch, NIST612 drift, or bridge-standard identity).\n'], nistTolPct);
+    end
+else
+    med_qa_u = NaN; med_qa_th = NaN; med_qa_sm = NaN;
+    med_nist_bridge_u = NaN; med_nist_bridge_th = NaN; med_nist_bridge_sm = NaN;
+    rel_nist_bridge_u = NaN; rel_nist_bridge_th = NaN; rel_nist_bridge_sm = NaN;
+    nistMismatch = false;
+    fprintf('  QA — independent NIST612 comparison unavailable (bridge-only session)\n');
 end
 
 % ---- Pooled (session-wide) calibration factors, for anchorMode='median' --
@@ -735,7 +819,8 @@ if strcmp(anchorMode, 'nist_interpolated')
     smCalSource(is_unknown & ~hasNistSm) = "NOT_CALCULATED";
 else
     needsSmFallback = is_unknown & ~smBridgeApplied;
-    hasNistSm = needsSmFallback & isfinite(outtbl.sm_ppm_nist612);
+    hasNistSm = needsSmFallback & hasIndependentNist & ...
+        isfinite(outtbl.sm_ppm_nist612);
     smCalSource(hasNistSm) = "NIST612_FALLBACK";
     smCalSource(needsSmFallback & ~hasNistSm) = "NOT_CALCULATED";
     if strcmp(anchorMode, 'median')
@@ -760,6 +845,16 @@ end
 outtbl.pv_he_um3    = PV_He;    outtbl.pv_he_1sd    = PV_He_1sd;
 outtbl.pv_uth_um3   = PV_UTh;   outtbl.pv_uth_1sd   = PV_UTh_1sd;
 outtbl.pv_used_um3  = PV_used;  outtbl.pv_used_1sd  = PV_used_1sd;
+if useAverageUthPit
+    uthPitMode = "SESSION_AVERAGE";
+    uthPitSourceText = sprintf('%.15g +/- %.15g um3 (1SD)', ...
+        uthPitVolSource, uthAverage1sd);
+else
+    uthPitMode = "MEASURED_PER_ANALYSIS";
+    uthPitSourceText = char(string(uthPitVolSource));
+end
+outtbl.uth_pit_volume_mode = repmat(uthPitMode, nR, 1);
+outtbl.uth_pit_volume_source = repmat(string(uthPitSourceText), nR, 1);
 % ── Step 4: Convert ppm -> atoms ─────────────────────────────────────────
 fprintf('ladd_reduce_apatite_pvmeas_hybrid: converting ppm to atoms...\n');
 cn_out = lower(outtbl.Properties.VariableNames);
@@ -898,13 +993,22 @@ else
     parentCalibrationMode = "BRIDGE_NEAREST";
 end
 outtbl.parent_calibration_mode = repmat(parentCalibrationMode, nR, 1);
+outtbl.primary_calibration_path = repmat(calibrationPath, nR, 1);
+outtbl.independent_nist_check_available = repmat(hasIndependentNist, nR, 1);
 outtbl.sm_reference_basis = repmat(string(smReferenceBasis), nR, 1);
 outtbl.bridge_kMAD_std = repmat(kMAD_std, nR, 1);
 outtbl.bridge_halfWinStd = repmat(halfWinStd, nR, 1);
 outtbl.bridge_autoExcludeReviews = repmat(autoExcludeBridgeReviews, nR, 1);
 outtbl.bridge_nAnchorsUsed = repmat(numel(bridge_seqs), nR, 1);
-outtbl.nist_review_kMAD_used = repmat(kMAD, nR, 1);
-outtbl.nist_review_halfWin_used = repmat(nistHalfWin, nR, 1);
+if hasIndependentNist
+    nistReviewKUsed = kMAD;
+    nistReviewHalfWinUsed = nistHalfWin;
+else
+    nistReviewKUsed = NaN;
+    nistReviewHalfWinUsed = NaN;
+end
+outtbl.nist_review_kMAD_used = repmat(nistReviewKUsed, nR, 1);
+outtbl.nist_review_halfWin_used = repmat(nistReviewHalfWinUsed, nR, 1);
 outtbl.nist_autoExcludeReviews_used = repmat(autoExcludeNistReviews, nR, 1);
 outtbl.bridge_nist_median_u_ppm = repmat(med_nist_bridge_u, nR, 1);
 outtbl.bridge_nist_median_th_ppm = repmat(med_nist_bridge_th, nR, 1);
@@ -930,6 +1034,70 @@ if ~isempty(saveAs)
 end
 
 end % ── END MAIN ──────────────────────────────────────────────────────────
+
+
+function [coreMetadataCsv, tempMetadataCsv, nTrueNist, nBridgeCoreRows] = ...
+    prepare_core_metadata(metadataCsv, bridgeName, allowBridgeOnly, usesDirectNist)
+md = readtable(metadataCsv, 'VariableNamingRule','preserve', ...
+    'TextType','string', 'Delimiter',',');
+md.Properties.VariableNames = lower(md.Properties.VariableNames);
+assert(all(ismember({'file','type'}, md.Properties.VariableNames)), ...
+    'ladd_reduce_apatite_pvmeas_hybrid: metadata must include file and type.');
+if ~ismember('stdname', md.Properties.VariableNames)
+    md.stdname = strings(height(md),1);
+end
+
+typeText = strtrim(string(md.type));
+stdText = strtrim(string(md.stdname));
+isTypeNist612 = strcmpi(typeText, 'NIST612');
+isBlankStd = ismissing(stdText) | strlength(stdText) == 0;
+isTrueNist = isTypeNist612 & (strcmpi(stdText, 'NIST612') | isBlankStd);
+isInconsistentNist = isTypeNist612 & ~isTrueNist;
+if any(isInconsistentNist)
+    badNames = unique(stdText(isInconsistentNist));
+    error(['ladd_reduce_apatite_pvmeas_hybrid: rows with type=NIST612 must ', ...
+        'identify actual NIST612 glass, but found stdname(s): %s.'], ...
+        strjoin(badNames, ', '));
+end
+nTrueNist = sum(isTrueNist);
+nBridgeCoreRows = 0;
+
+if nTrueNist < 1
+    if usesDirectNist
+        error(['ladd_reduce_apatite_pvmeas_hybrid: direct NIST AnchorMode ', ...
+            'requires genuine NIST612 rows. Use a bridge mode when NIST612 ', ...
+            'was not run.']);
+    end
+    if ~allowBridgeOnly
+        error(['ladd_reduce_apatite_pvmeas_hybrid: no genuine NIST612 rows ', ...
+            'were found. Set AllowBridgeOnly=true to use the explicitly ', ...
+            'named mineral reference material as the sole calibration.']);
+    end
+    isBridgeCore = strcmpi(stdText, strtrim(string(bridgeName)));
+    nBridgeCoreRows = sum(isBridgeCore);
+    assert(nBridgeCoreRows >= 3, ...
+        ['ladd_reduce_apatite_pvmeas_hybrid: bridge-only mode requires at ', ...
+         'least three rows whose stdname exactly matches "%s"; found %d.'], ...
+        bridgeName, nBridgeCoreRows);
+    md.type(isBridgeCore) = "NIST612";
+    md.stdname(isBridgeCore) = "NIST612";
+end
+
+coreMetadataCsv = metadataCsv;
+tempMetadataCsv = '';
+if nBridgeCoreRows > 0
+    tempMetadataCsv = [tempname, '.csv'];
+    writetable(md, tempMetadataCsv);
+    coreMetadataCsv = tempMetadataCsv;
+end
+end
+
+
+function delete_if_exists(pathText)
+if ~isempty(pathText) && isfile(pathText)
+    delete(pathText);
+end
+end
 
 
 function pv = read_pv_csv(csvPath, label)

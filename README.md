@@ -18,7 +18,6 @@ acquisition software.
 
 - MATLAB
 - Statistics and Machine Learning Toolbox for parent-isotope reduction
-- R and IsoplotR only if the optional apatite U-Pb module is used
 
 The release candidate has been checked with MATLAB R2025b.
 
@@ -42,14 +41,14 @@ he = ladd_reduce_helium( ...
     'helium_input.csv', ...
     'he_pit_volumes.csv', ...
     'air_calibration.csv', ...
-    'sample_types.csv', ...
+    'helium_metadata.csv', ...
     'Mineral', 'apatite', ...
     'OutputFile', 'helium_reduced.csv');
 ```
 
-2. Reduce parent isotopes from the time-series files and measured nested-pit
-   volumes. Reference-material identity and the Sm reference basis must be
-   declared explicitly:
+2. Reduce parent isotopes from the time-series files and nested-pit volumes.
+   The standard lookup table supplies the user's reference-material values;
+   no mineral reference material or concentration is built into the code:
 
 ```matlab
 parents = ladd_reduce_apatite( ...
@@ -58,13 +57,14 @@ parents = ladd_reduce_apatite( ...
     'he_pit_volumes.csv', ...
     'uth_pit_volumes.csv', ...
     'BridgeStandardName', 'ReferenceMaterial', ...
+    'ReferenceLookupFile', 'reference_material_lookup.csv', ...
     'SmReferenceBasis', 'total', ...
     'OutputFile', 'parents_reduced.csv');
 ```
 
-For zircon, call `ladd_reduce_zircon`. Its fourth input can be either a
-per-analysis U-Th pit-volume CSV or a positive, explicitly declared session
-average in cubic micrometres.
+For zircon, call `ladd_reduce_zircon`. For either mineral, the fourth input can
+be a per-analysis U-Th pit-volume CSV or a positive, explicitly declared
+session-average volume; the average also requires `UthAverage1SD`.
 
 3. Match the two reductions by `GrainID` and calculate dates:
 
@@ -84,6 +84,27 @@ addpath('/path/to/LADDReduce/examples/synthetic')
 example = run_synthetic_examples;
 ```
 
+## Parent-reduction choices
+
+The primary measured-volume workflow subtracts each grain's inner He-pit
+volume from its measured outer U-Th-pit volume. A session-average outer-pit
+volume remains available as a documented alternative when individual outer
+measurements are unavailable. Every output records which volume mode and
+source were used.
+
+Bridge calibration is available for both minerals. `BridgeStandardName` is
+the exact user-defined `stdname` in the metadata and lookup table; no mineral
+reference-material identity is hardcoded. NIST612 is optional for bridge
+calibration: when present it supplies an independent comparison, and when
+absent the user explicitly selects `AllowBridgeOnly`, using at least three
+replicates of the named bridge material. Apatite's direct-NIST sensitivity
+modes require actual NIST612 analyses.
+
+Apatite reduction measures U, Th, and Sm and requires the declared Sm
+reference basis. Zircon reduction measures U and Th without an Sm term. The
+age-calculation step then joins the He and parent outputs by `GrainID` and uses
+their atoms-per-gram values and 1-sigma uncertainties.
+
 ## Review and exclusion policy
 
 Review flags report calibration, matching, or analytical conditions without
@@ -102,7 +123,6 @@ not available in the public package.
 - `examples/templates/`: generic CSV templates
 - `examples/synthetic/`: runnable end-to-end apatite and zircon examples
 - `tests/`: self-contained synthetic regression and safeguard tests
-- `optional_apatite_upb/`: optional apatite U-Pb/common-Pb tools
 
 ## Run the tests
 
@@ -111,8 +131,6 @@ results = runtests('/path/to/LADDReduce/tests');
 assert(all([results.Passed]));
 ```
 
-The current tests verify ordinary blank-corrected helium reduction, guard the
-CPS integration unit, and run both mineral workflows through final age
-calculation. The cleaned reducer also reproduces three preserved accepted
-fixture calculations spanning apatite and two zircon instrument exports;
-those private fixtures are not included in the public package.
+The tests verify ordinary blank-corrected helium reduction, guard the CPS
+integration unit, exercise the documented calibration and pit-volume options,
+and run both mineral workflows through final age calculation.

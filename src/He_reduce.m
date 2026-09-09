@@ -4,7 +4,7 @@ function outtbl = He_reduce(inputFile, pitVolFile, airStdFile, typeMapFile, cfg,
 % USAGE
 %   cfg = he_default_cfg('zircon');
 %   out = He_reduce('helium_input.csv', 'he_pit_volumes.csv', ...
-%                   'air_calibration.csv', 'sample_types.csv', cfg, ...
+%                   'air_calibration.csv', 'helium_metadata.csv', cfg, ...
 %                   'saveAs','helium_reduced.csv');
 %
 % INPUTS
@@ -15,7 +15,7 @@ function outtbl = He_reduce(inputFile, pitVolFile, airStdFile, typeMapFile, cfg,
 %   pitVolFile  : pit-volume CSV  — GrainID | PitVol_um3 | PV1SD_um3
 %   airStdFile  : air standard CSV — AirID | FourHeAir | FourHeAir1SD
 %                 FourHeAir = atoms/cps from tank depletion master sheet
-%   typeMapFile : type map CSV  — SampleName | RunScript
+%   typeMapFile : helium metadata CSV — SampleName | RunScript
 %                 RunScript: 1=air  2=blank  3=unknown  4=He mineral std
 %   cfg         : struct from he_default_cfg('zircon' or 'apatite')
 %

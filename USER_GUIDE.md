@@ -17,9 +17,8 @@ whole grain.
 
 ## 2. Requirements and setup
 
-The core package requires MATLAB. Parent-isotope reduction uses Statistics and
-Machine Learning Toolbox functions. The optional apatite U-Pb module also
-requires R and IsoplotR.
+The package requires MATLAB. Parent-isotope reduction uses Statistics and
+Machine Learning Toolbox functions.
 
 Add the source folder at the beginning of a MATLAB session:
 
@@ -49,7 +48,7 @@ he = ladd_reduce_helium( ...
     'helium_input.csv', ...
     'he_pit_volumes.csv', ...
     'air_calibration.csv', ...
-    'sample_types.csv', ...
+    'helium_metadata.csv', ...
     'Mineral', 'apatite', ...
     'OutputFile', 'helium_reduced.csv');
 ~~~
@@ -69,7 +68,7 @@ Required columns:
 He4_cps must already contain the ordinary correction produced by the
 acquisition workflow.
 
-### Sample-type table
+### Helium metadata table
 
 The table maps SampleName to RunScript:
 
@@ -108,8 +107,8 @@ Both mineral workflows require:
 - a folder of raw-style parent-isotope time-series CSV files;
 - one metadata CSV;
 - a He pit-volume CSV; and
-- a U-Th pit-volume CSV, except when zircon uses an explicitly declared
-  session-average U-Th pit volume.
+- a U-Th pit-volume CSV or an explicitly declared session-average U-Th pit
+  volume and its 1-sigma uncertainty.
 
 The time-series files need a time channel and the declared isotope channels.
 The public reducers use median signal-plateau CPS minus median pre-ablation
@@ -133,8 +132,10 @@ Rows with type NIST612 must represent NIST612 glass. The zircon reducer stops
 on inconsistent type and stdname combinations instead of relabeling them.
 
 Reference concentrations are user supplied. LADDReduce does not provide
-laboratory defaults. The optional ladd_enrich_metadata helper requires an
-explicit lookup-table path and never overwrites existing nonblank values.
+laboratory defaults. Supply `ReferenceLookupFile` to either public parent
+reducer to fill blank `known_*` metadata fields from the lookup table. Existing
+nonblank values are never overwritten. Exact normalized standard names are
+preferred; ambiguous partial matches stop for correction.
 
 ### Nested-pit volumes
 
@@ -144,9 +145,11 @@ For unknowns with both volumes, the parent-isotope volume is:
 analyzed parent volume = outer U-Th pit volume - inner He pit volume
 ~~~
 
-The difference must be positive. Bridge-standard rows use their full measured
-U-Th pit volume. Missing, nonpositive, or mismatched volumes are retained with
-review flags rather than being repaired silently.
+The difference must be positive. Bridge-standard rows use their full outer
+U-Th pit volume. If a session-average outer volume is used, the same declared
+value and uncertainty are applied consistently and recorded in the output.
+Missing, nonpositive, or mismatched volumes are retained with review flags
+rather than being repaired silently.
 
 ## 6. Apatite parent reduction
 
@@ -157,6 +160,7 @@ parents = ladd_reduce_apatite( ...
     'he_pit_volumes.csv', ...
     'uth_pit_volumes.csv', ...
     'BridgeStandardName', 'ReferenceMaterial', ...
+    'ReferenceLookupFile', 'reference_material_lookup.csv', ...
     'SmReferenceBasis', 'total', ...
     'AnchorMode', 'median', ...
     'OutputFile', 'parents_reduced.csv');
@@ -177,6 +181,16 @@ Apatite AnchorMode choices:
 The default is nearest. Selection should reflect the reference material,
 acquisition design, and intended calibration strategy.
 
+The fourth positional input can instead be one positive numeric session-average
+U-Th pit volume. In that case, `UthAverage1SD` must also be supplied. Measured
+per-analysis volumes are preferable when available.
+
+NIST612 is not mathematically required for the `nearest` or `median` bridge
+calibration. If no genuine NIST612 rows are present, set `AllowBridgeOnly` to
+true; at least three replicates of the named bridge material are required and
+the output records that no independent NIST comparison was available. The
+`nist_following` and `nist_interpolated` modes do require actual NIST612 rows.
+
 ## 7. Zircon parent reduction
 
 ~~~matlab
@@ -186,6 +200,7 @@ parents = ladd_reduce_zircon( ...
     'he_pit_volumes.csv', ...
     'uth_pit_volumes.csv', ...
     'BridgeStandardName', 'ReferenceMaterial', ...
+    'ReferenceLookupFile', 'reference_material_lookup.csv', ...
     'AnchorMode', 'median', ...
     'OutputFile', 'parents_reduced.csv');
 ~~~
@@ -204,7 +219,7 @@ The fourth positional input can instead be one positive numeric session-average
 U-Th pit volume. In that case, UthAverage1SD must also be supplied explicitly.
 Per-analysis measured volumes are preferable when available.
 
-A zircon session without genuine NIST612 rows stops by default. AllowBridgeOnly
+A zircon session without genuine NIST612 rows stops by default. `AllowBridgeOnly`
 must be set explicitly to use at least three named bridge rows as the sole
 parent calibration. That output clearly records that no independent NIST check
 was available.
@@ -319,9 +334,6 @@ For reproducible use, record:
 - reference-material identities, concentrations, Sm basis, and citations;
 - apatite or zircon anchor mode;
 - measured pit-volume source and uncertainties, or the explicitly declared
-  zircon session-average volume;
+  session-average volume;
 - all explicit exclusions and their independent rationale; and
 - the review flags retained in the reported dataset.
-
-The optional apatite U-Pb/common-Pb workflow has separate instructions in
-optional_apatite_upb.
