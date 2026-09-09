@@ -43,6 +43,7 @@ verifyEqual(testCase, out.cpsu(sampleRow), 700, 'AbsTol', 1e-12);
 verifyEqual(testCase, out.cpsth(sampleRow), 300, 'AbsTol', 1e-12);
 verifyEqual(testCase, string(out.integration_mode(sampleRow)), "median_cps");
 verifyFalse(testCase, contains(consoleText, "NONE matrix scalar"));
+verifyTrue(testCase, contains(consoleText, "NIST612 check"));
 end
 
 function writeSyntheticQtegra(fileName, uPlateau, thPlateau)

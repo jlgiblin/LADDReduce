@@ -33,6 +33,7 @@ p = inputParser;
 p.addParameter('kMAD',6);
 p.addParameter('nistHalfWin',12,@(x)isnumeric(x)&&isscalar(x)&&x>=1);
 p.addParameter('autoExcludeNistReviews',false,@(x)islogical(x)||isnumeric(x));
+p.addParameter('showNistSummary',true,@(x)islogical(x)||isnumeric(x));
 p.addParameter('excludeNistFiles',strings(0,1), ...
     @(x)ischar(x)||isstring(x)||iscell(x));
 p.addParameter('minIS',1e5);
@@ -48,6 +49,7 @@ p.parse(varargin{:});
 kMAD        = p.Results.kMAD;
 nistHalfWin = p.Results.nistHalfWin;
 autoExcludeNistReviews = logical(p.Results.autoExcludeNistReviews);
+showNistSummary = logical(p.Results.showNistSummary);
 excludeNistFiles = string(p.Results.excludeNistFiles);
 minIS       = p.Results.minIS;
 gInterp     = lower(p.Results.parentScalarInterp);
@@ -719,7 +721,7 @@ have = intersect(want, raw.Properties.VariableNames, 'stable');
 outtbl = raw(:, have);
 
 % sanity print (post-scaling NIST should remain ~37/37)
-if all(ismember({'U_ppm','Th_ppm'}, outtbl.Properties.VariableNames))
+if showNistSummary && all(ismember({'U_ppm','Th_ppm'}, outtbl.Properties.VariableNames))
     is612 = strcmpi(outtbl.type,'NIST612');
     if any(is612)
         fprintf('NIST612 check — median U_ppm: %.2f, Th_ppm: %.2f\n', ...
