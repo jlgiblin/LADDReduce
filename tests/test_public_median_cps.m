@@ -33,8 +33,8 @@ cfg = struct('mineral','zircon','density',4.65,'mode','nois', ...
     'IS_element','Si','IS_ppm_std',3.10e5,'IS_ppm_unk',1.52e5, ...
     'pick',struct('U',"238U",'Th',"232Th",'IS',"29Si"), ...
     'includeSm',false,'matrixScalarName',"NONE");
-out = reduce_core_pv(fixtureRoot, metadataFile, cfg, ...
-    'autoExcludeNistReviews', false);
+consoleText = evalc("out = reduce_core_pv(fixtureRoot, metadataFile, cfg, " + ...
+    "'autoExcludeNistReviews', false);");
 
 sampleRow = find(string(out.file) == "sample_01.csv", 1);
 verifyNotEmpty(testCase, sampleRow);
@@ -42,6 +42,7 @@ verifyNotEmpty(testCase, sampleRow);
 verifyEqual(testCase, out.cpsu(sampleRow), 700, 'AbsTol', 1e-12);
 verifyEqual(testCase, out.cpsth(sampleRow), 300, 'AbsTol', 1e-12);
 verifyEqual(testCase, string(out.integration_mode(sampleRow)), "median_cps");
+verifyFalse(testCase, contains(consoleText, "NONE matrix scalar"));
 end
 
 function writeSyntheticQtegra(fileName, uPlateau, thPlateau)

@@ -548,8 +548,11 @@ end
 end
 
 % ---------------------- Matrix parent scalar (generic) --------------------
-if ~isempty(cfg.matrixScalarName)
-    isMat = hasStdCol & contains(lower(string(raw.stdname)), lower(string(cfg.matrixScalarName)));
+matrixScalarName = strtrim(string(cfg.matrixScalarName));
+matrixScalarEnabled = isscalar(matrixScalarName) && ~ismissing(matrixScalarName) && ...
+    strlength(matrixScalarName) > 0 && ~strcmpi(matrixScalarName, "NONE");
+if matrixScalarEnabled
+    isMat = hasStdCol & contains(lower(string(raw.stdname)), lower(matrixScalarName));
     hasKnownU  = isfinite(raw.known_u_ppm);
     hasKnownTh = isfinite(raw.known_th_ppm);
     if ismember('known_sm_ppm', raw.Properties.VariableNames)
@@ -629,11 +632,11 @@ if ~isempty(cfg.matrixScalarName)
         end
 
         fprintf('%s matrix scalar: %.0f anchors; median g = %.3f\n', ...
-            char(string(cfg.matrixScalarName)), sum(ok), double(median(g_i,'omitnan')));
+            char(matrixScalarName), sum(ok), double(median(g_i,'omitnan')));
     else
-        fprintf('%s matrix scalar: no valid anchors; skipped.\n', string(cfg.matrixScalarName));
+        fprintf('%s matrix scalar: no valid anchors; skipped.\n', matrixScalarName);
     end
-end  % closes: if ~isempty(cfg.matrixScalarName)
+end  % closes: if matrixScalarEnabled
 
 % ---------------------- Global ppm -> atoms/g ----------------------------
 toAtoms = @(ppm,MW) ppm * 1e-6 * NA / MW;
