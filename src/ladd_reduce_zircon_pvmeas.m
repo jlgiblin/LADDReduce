@@ -241,6 +241,12 @@ mdJoin.Properties.VariableNames = lower(mdJoin.Properties.VariableNames);
 assert(all(ismember({'file','known_u_ppm','known_th_ppm'}, ...
     mdJoin.Properties.VariableNames)), ...
     'ladd_reduce_zircon_pvmeas: enriched metadata lacks known U/Th columns.');
+if ~ismember('known_u_1sd_ppm',mdJoin.Properties.VariableNames)
+    mdJoin.known_u_1sd_ppm = NaN(height(mdJoin),1);
+end
+if ~ismember('known_th_1sd_ppm',mdJoin.Properties.VariableNames)
+    mdJoin.known_th_1sd_ppm = NaN(height(mdJoin),1);
+end
 
 stripPath = @(f) char(regexp(string(f), '[^/\\]+$', 'match', 'once'));
 mdFiles   = cellfun(stripPath, cellstr(mdJoin.file), 'UniformOutput', false);
@@ -248,6 +254,8 @@ outFiles  = cellfun(stripPath, cellstr(outtbl.file), 'UniformOutput', false);
 
 knownU  = NaN(height(outtbl),1);
 knownTh = NaN(height(outtbl),1);
+knownU1sd  = NaN(height(outtbl),1);
+knownTh1sd = NaN(height(outtbl),1);
 sourceType = strings(height(outtbl),1);
 sourceStdName = strings(height(outtbl),1);
 for ii = 1:height(outtbl)
@@ -255,11 +263,15 @@ for ii = 1:height(outtbl)
     if isempty(jj), continue; end
     knownU(ii)  = double(mdJoin.known_u_ppm(jj));
     knownTh(ii) = double(mdJoin.known_th_ppm(jj));
+    knownU1sd(ii)  = double(mdJoin.known_u_1sd_ppm(jj));
+    knownTh1sd(ii) = double(mdJoin.known_th_1sd_ppm(jj));
     sourceType(ii) = string(mdJoin.type(jj));
     sourceStdName(ii) = string(mdJoin.stdname(jj));
 end
 outtbl.known_u_ppm  = knownU;
 outtbl.known_th_ppm = knownTh;
+outtbl.known_u_1sd_ppm  = knownU1sd;
+outtbl.known_th_1sd_ppm = knownTh1sd;
 % A bridge-only core temporarily presents the bridge rows to reduce_core_pv
 % as calibration anchors. Restore the exact source identities before any
 % matching, reporting, or output is performed.
@@ -513,6 +525,8 @@ KUMed  = median(KUi,  'omitnan');
 KThMed = median(KThi, 'omitnan');
 relKU  = relative_robust_scatter(KUi);
 relKTh = relative_robust_scatter(KThi);
+relRefU  = median_reference_rse(knownU(bridgeSeqs), knownU1sd(bridgeSeqs));
+relRefTh = median_reference_rse(knownTh(bridgeSeqs), knownTh1sd(bridgeSeqs));
 
 if any(strcmp(anchorMode, {'median','single'}))
     fprintf('  anchorMode=%s pooled factors from %d bridge rows:\n', anchorMode, numel(bridgeSeqs));
@@ -547,6 +561,8 @@ uPpmNew    = double(outtbl{:, colUPpm});
 thPpmNew   = double(outtbl{:, colThPpm});
 uPpmSeNew  = double(outtbl{:, colUPpmSe});
 thPpmSeNew = double(outtbl{:, colThPpmSe});
+uReferenceRel1sdUsed  = NaN(nR,1);
+thReferenceRel1sdUsed = NaN(nR,1);
 
 for ii = 1:nR
     if ~isUnknown(ii), continue; end
@@ -564,10 +580,12 @@ for ii = 1:nR
         thPpmNew(ii)= (cpsTh(ii) / pvUnknown) * KThMed;
         uPpmSeNew(ii) = abs(uPpmNew(ii)) * sqrt( ...
             (cpsUSe(ii) / max(abs(cpsU(ii)), eps))^2 + ...
-            relKU^2 + pvUnknownRse^2);
+            relKU^2 + relRefU^2 + pvUnknownRse^2);
         thPpmSeNew(ii) = abs(thPpmNew(ii)) * sqrt( ...
             (cpsThSe(ii) / max(abs(cpsTh(ii)), eps))^2 + ...
-            relKTh^2 + pvUnknownRse^2);
+            relKTh^2 + relRefTh^2 + pvUnknownRse^2);
+        uReferenceRel1sdUsed(ii) = relRefU;
+        thReferenceRel1sdUsed(ii) = relRefTh;
         continue;
     end
 
@@ -587,14 +605,19 @@ for ii = 1:nR
     thPpmNew(ii) = (cpsTh(ii) / pvUnknown) / ...
         (cpsTh(bi) / pvBridge) * knownTh(bi);
 
+    uRefRse  = scalar_reference_rse(knownU(bi), knownU1sd(bi));
+    thRefRse = scalar_reference_rse(knownTh(bi), knownTh1sd(bi));
+
     uPpmSeNew(ii) = abs(uPpmNew(ii)) * sqrt( ...
         (cpsUSe(ii) / max(abs(cpsU(ii)), eps))^2 + ...
         (cpsUSe(bi) / max(abs(cpsU(bi)), eps))^2 + ...
-        pvUnknownRse^2 + pvBridgeRse^2);
+        pvUnknownRse^2 + pvBridgeRse^2 + uRefRse^2);
     thPpmSeNew(ii) = abs(thPpmNew(ii)) * sqrt( ...
         (cpsThSe(ii) / max(abs(cpsTh(ii)), eps))^2 + ...
         (cpsThSe(bi) / max(abs(cpsTh(bi)), eps))^2 + ...
-        pvUnknownRse^2 + pvBridgeRse^2);
+        pvUnknownRse^2 + pvBridgeRse^2 + thRefRse^2);
+    uReferenceRel1sdUsed(ii) = uRefRse;
+    thReferenceRel1sdUsed(ii) = thRefRse;
 end
 
 outtbl{:, colUPpm}    = uPpmNew;
@@ -602,6 +625,15 @@ outtbl{:, colThPpm}   = thPpmNew;
 outtbl{:, colUPpmSe}  = uPpmSeNew;
 outtbl{:, colThPpmSe} = thPpmSeNew;
 outtbl.bridge_seq = assignedBridge;
+outtbl.u_reference_rel_1sd_used = uReferenceRel1sdUsed;
+outtbl.th_reference_rel_1sd_used = thReferenceRel1sdUsed;
+referenceUncertaintyStatus = repmat("NOT_APPLICABLE",nR,1);
+hasReferenceUncertainty = isUnknown & ...
+    ((isfinite(uReferenceRel1sdUsed) & uReferenceRel1sdUsed > 0) | ...
+     (isfinite(thReferenceRel1sdUsed) & thReferenceRel1sdUsed > 0));
+referenceUncertaintyStatus(isUnknown) = "NOT_SUPPLIED_ASSUMED_ZERO";
+referenceUncertaintyStatus(hasReferenceUncertainty) = "PROPAGATED";
+outtbl.reference_uncertainty_status = referenceUncertaintyStatus;
 fprintf('  Bridge-standard calibration complete\n');
 
 % ── Step 3: Store pit-volume columns ─────────────────────────────────────
@@ -621,14 +653,16 @@ thAtoms = (thPpmNew / 1e6) / MW_Th .* NA .* grainMass;
 
 uPpmRelSe  = uPpmSeNew  ./ max(abs(uPpmNew), eps);
 thPpmRelSe = thPpmSeNew ./ max(abs(thPpmNew), eps);
-pvRelSe = PV_used_1sd ./ max(PV_used, eps);
 
-uAtomsSe  = abs(uAtoms)  .* sqrt(uPpmRelSe.^2  + pvRelSe.^2);
-thAtomsSe = abs(thAtoms) .* sqrt(thPpmRelSe.^2 + pvRelSe.^2);
+% Concentration uncertainty already contains the applicable pit-volume
+% terms. Reapplying PV uncertainty here would count it twice in atoms/g,
+% which is the quantity consumed by the age calculation.
+uAtomsSe  = abs(uAtoms)  .* uPpmRelSe;
+thAtomsSe = abs(thAtoms) .* thPpmRelSe;
 uAtomsG    = uAtoms ./ grainMass;
 thAtomsG   = thAtoms ./ grainMass;
-uAtomsGSe  = uAtomsSe ./ grainMass;
-thAtomsGSe = thAtomsSe ./ grainMass;
+uAtomsGSe  = (uPpmSeNew  / 1e6) / MW_U  .* NA;
+thAtomsGSe = (thPpmSeNew / 1e6) / MW_Th .* NA;
 
 notUnknown = ~isUnknown;
 uAtoms(notUnknown) = NaN;
@@ -890,6 +924,27 @@ rel = 1.4826 * mad(values, 1) / max(eps, abs(med));
 end
 
 
+function rse = scalar_reference_rse(knownValue, known1sd)
+if isfinite(knownValue) && knownValue > 0 && ...
+        isfinite(known1sd) && known1sd >= 0
+    rse = known1sd / knownValue;
+else
+    rse = 0;
+end
+end
+
+
+function rse = median_reference_rse(knownValues, known1sdValues)
+valid = isfinite(knownValues) & knownValues > 0 & ...
+    isfinite(known1sdValues) & known1sdValues >= 0;
+if any(valid)
+    rse = median(known1sdValues(valid) ./ knownValues(valid), 'omitnan');
+else
+    rse = 0;
+end
+end
+
+
 function print_bridge_diagnostics(isBridge, cpsU, cpsTh, knownU, knownTh, ...
     pvBridge, bridgeName)
 fprintf('  Diagnostic breakdown for %d rows matching "%s":\n', ...
@@ -923,8 +978,11 @@ N232 = Th;
 N232Se = ThSe;
 
 production = 8*lam238.*N238 + 7*lam235.*N235 + 6*lam232.*N232;
-productionSe = sqrt((8*lam238.*N238Se).^2 + ...
-    (7*lam235.*N235Se).^2 + (6*lam232.*N232Se).^2);
+% 238U and 235U are partitions of the same measured total-U quantity and
+% therefore share one uncertainty term; they are not independent inputs.
+uProductionCoefficient = 8*lam238*f238 + 7*lam235*f235;
+productionSe = sqrt((uProductionCoefficient .* USe).^2 + ...
+    (6*lam232.*N232Se).^2);
 
 outtbl.n238_atoms_g = N238;
 outtbl.n238_atoms_g_se = N238Se;

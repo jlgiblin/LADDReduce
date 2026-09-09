@@ -1,3 +1,3 @@
-stdname,known_u_ppm,known_th_ppm,known_sm_ppm,sm_reference_basis,reference
-NIST612,NaN,NaN,NaN,total,replace with laboratory value source
-ReferenceMaterial,NaN,NaN,NaN,total,replace with published or laboratory value source
+stdname,known_u_ppm,known_th_ppm,known_sm_ppm,known_u_1sd_ppm,known_th_1sd_ppm,known_sm_1sd_ppm,sm_reference_basis,reference
+NIST612,NaN,NaN,NaN,NaN,NaN,NaN,total,replace with laboratory value source
+ReferenceMaterial,NaN,NaN,NaN,NaN,NaN,NaN,total,replace with published or laboratory value source

@@ -37,6 +37,11 @@ ages = ladd_calculate_ages(fixture.apatite.helium_output,parentOutput, ...
 
 verifyTrue(testCase,all(~parents.independent_nist_check_available));
 verifyTrue(testCase,all(parents.primary_calibration_path == "BRIDGE_ONLY_NO_NIST"));
+unknown = strcmpi(string(parents.type),'Unknown');
+verifyTrue(testCase,all(parents.reference_uncertainty_status(unknown) == "PROPAGATED"));
+verifyEqual(testCase, ...
+    parents.u_atoms_g_se(unknown)./parents.u_atoms_g(unknown), ...
+    parents.u_ppm_se(unknown)./parents.u_ppm(unknown),'RelTol',1e-12);
 verifyEqual(testCase,ages.Age_Ma,fixture.apatite.target_age_Ma,'AbsTol',0.02);
 verifyFalse(testCase,contains(consoleText,"NIST612 check — median"));
 verifyTrue(testCase,contains(consoleText,"Bridge-only session"));
@@ -62,6 +67,11 @@ consoleText = evalc("parents = ladd_reduce_zircon(" + ...
 
 verifyTrue(testCase,all(~parents.independent_nist_check_available));
 verifyTrue(testCase,all(parents.parent_calibration_path == "BRIDGE_ONLY_NO_NIST"));
+unknown = strcmpi(string(parents.type),'Unknown');
+verifyTrue(testCase,all(parents.reference_uncertainty_status(unknown) == "PROPAGATED"));
+verifyEqual(testCase, ...
+    parents.u_atoms_g_se(unknown)./parents.u_atoms_g(unknown), ...
+    parents.u_ppm_se(unknown)./parents.u_ppm(unknown),'RelTol',1e-12);
 verifyFalse(testCase,contains(consoleText,"NIST612 check — median"));
 verifyTrue(testCase,contains(consoleText,"bridge-only signal extraction"));
 end
