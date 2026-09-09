@@ -5,8 +5,8 @@ LADDReduce is a MATLAB toolkit for reducing laser-ablation double-dating
 measurements, and nested-pit volumes to calculate sub-grain (U-Th[-Sm])/He
 dates and 1-sigma uncertainties for apatite or zircon.
 
-This is a release-candidate package. Its numerical core and safeguards are
-being tested before the first public release.
+The public workflow and numerical core have been validated with synthetic
+tests and archived apatite and zircon production datasets.
 
 ## Input assumption
 
@@ -19,7 +19,7 @@ acquisition software.
 - MATLAB
 - Statistics and Machine Learning Toolbox for parent-isotope reduction
 
-The release candidate has been checked with MATLAB R2025b.
+The package has been checked with MATLAB R2025b.
 
 See `USER_GUIDE.md` for input definitions, calibration modes, output columns,
 review flags, exclusions, troubleshooting context, and a reporting checklist.

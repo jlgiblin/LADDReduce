@@ -114,6 +114,14 @@ The time-series files need a time channel and the declared isotope channels.
 The public reducers use median signal-plateau CPS minus median pre-ablation
 background CPS. Row-sum integration is not available.
 
+Metadata rows must represent chronological acquisition order whenever a
+calibration or quality-control calculation depends on sequence. If the
+metadata are not already chronological—for example, if filenames were sorted
+lexicographically so `_10` appears before `_2`—pass `RunOrder` with the raw
+filename prefix or prefixes. LADDReduce then sorts each prefix group by its
+trailing numeric file index. This applies to single-prefix sessions as well as
+folders containing multiple analytical runs.
+
 ### Parent metadata
 
 Required or strongly recommended columns:
