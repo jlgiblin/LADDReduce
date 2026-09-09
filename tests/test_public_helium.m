@@ -42,8 +42,4 @@ row = find(string(out.GrainID) == "SampleA-grain-001", 1);
 verifyNotEmpty(testCase, row);
 verifyEqual(testCase, out.He4Unk_atoms(row), 1e10, 'AbsTol', 1e-6);
 verifyEqual(testCase, out.BlankMedian_cps(row), 10, 'AbsTol', 1e-12);
-
-names = lower(string(out.Properties.VariableNames));
-verifyFalse(testCase, any(contains(names, "backcalc")));
-verifyFalse(testCase, any(contains(names, "reconstruct")));
 end

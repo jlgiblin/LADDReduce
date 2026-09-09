@@ -2,7 +2,6 @@ function outtbl = ladd_reduce_helium(rawHeFile, hePitVolumeFile, ...
     airCalibrationFile, sampleTypeFile, varargin)
 %LADD_REDUCE_HELIUM Reduce ordinary blank-corrected helium measurements.
 %
-% This public entry point does not estimate or reconstruct a missing blank.
 % rawHeFile must contain the blank-corrected signal exported by the
 % acquisition software.
 %

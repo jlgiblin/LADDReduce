@@ -8,15 +8,11 @@ dates and 1-sigma uncertainties for apatite or zircon.
 This is a release-candidate package. Its numerical core and safeguards are
 being tested before the first public release.
 
-## Public-package boundary
+## Input assumption
 
 The public workflow assumes that the mass-spectrometer export already
 contains the ordinary blank-corrected helium signal produced by the
-acquisition software. It does not infer, reconstruct, length-correct, or
-back-calculate a missing blank interval.
-
-An incident-specific blank-timing recovery workflow is maintained separately
-for laboratory use and is not part of this package.
+acquisition software.
 
 ## Requirements
 

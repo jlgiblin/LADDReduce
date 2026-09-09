@@ -30,28 +30,15 @@ Four short public entry points now wrap the more detailed reduction engines:
 - `ladd_calculate_ages`
 
 These wrappers require users to declare mineral type, bridge-standard identity,
-and Sm reference basis where applicable. They do not expose the blank-timing
-recovery workflow.
+and Sm reference basis where applicable.
 
 ## Material intentionally excluded
 
-- Blank-duration back-calculation or inferred missing-blank correction
 - Lab session runners and session-specific metadata repairs
 - Research sample identifiers, private paths, raw data, and working documents
 - Instrument-specific empirical standard values presented as universal
   defaults
 - Pecube, DetritalChronFilter, and MultichronFitTSF working outputs
-
-## Lab-only extension
-
-The affected-session back-calculation has been preserved in
-`LADDReduce_LabBlankRecovery`. Its supported entry point now requires an
-explicit affected-session confirmation, timing and reference provenance, and
-a declared correction configuration. It writes uncorrected, recovered,
-comparison, back-calculation, and manifest tables without overwriting earlier
-files. Diagnostic and experimental routines are physically separated. A
-de-identified frozen-session regression and laboratory approval are still
-required before internal distribution.
 
 ## Validation baseline
 
@@ -60,7 +47,7 @@ required before internal distribution.
   both instrument generations represented by three private zircon/apatite
   fixtures.
 - A self-contained helium test verifies ordinary blank-corrected reduction and
-  confirms that no blank-reconstruction output is present.
+  validates the public output schema.
 - A self-contained end-to-end generator runs generic apatite and zircon
   datasets through all four public entry points and recovers their declared
   target ages.

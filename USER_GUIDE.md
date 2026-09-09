@@ -15,9 +15,6 @@ The final calculation reports sub-grain (U-Th-Sm)/He dates for apatite or
 the calculation represents nested ablation volumes rather than a conventional
 whole grain.
 
-This package does not reconstruct an omitted or shortened blank acquisition.
-Incident-specific blank recovery is outside the public workflow.
-
 ## 2. Requirements and setup
 
 The core package requires MATLAB. Parent-isotope reduction uses Statistics and
@@ -70,8 +67,7 @@ Required columns:
 | He4_1SD | Absolute 1-sigma uncertainty on He4_cps |
 
 He4_cps must already contain the ordinary correction produced by the
-acquisition workflow. Do not supply an uncorrected intercept or reconstructed
-blank value.
+acquisition workflow.
 
 ### Sample-type table
 
